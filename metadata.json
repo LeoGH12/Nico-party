@@ -1,0 +1,6 @@
+{
+  "name": "Noche de Terror - Fiesta de Disfraces en Casa de Nico",
+  "description": "Aplicación interactiva para la fiesta de disfraces de Halloween en Casa de Nico: asignación secreta de 50 personajes, consejos low-cost, cuenta atrás y juego en vivo 'La Pasarela' con votación en tiempo real.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
