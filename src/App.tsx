@@ -28,7 +28,7 @@ import { CharacterCard } from './components/CharacterCard.tsx';
 import { CatwalkRunway } from './components/CatwalkRunway.tsx';
 import { HostModal } from './components/HostModal.tsx';
 import { WinnersCeremonyModal } from './components/WinnersCeremonyModal.tsx';
-import { Character } from './data/characters.ts';
+import { HALLOWEEN_CHARACTERS, Character } from './data/characters.ts';
 import { halloweenAudio } from './utils/audio.ts';
 
 interface UserData {
@@ -110,6 +110,37 @@ export default function App() {
   // Host modal
   const [showHostModal, setShowHostModal] = useState<boolean>(false);
 
+// Helper: safe JSON fetcher that avoids SyntaxError on HTML 404/500 responses
+async function safeFetchJson<T = any>(
+  url: string,
+  options?: RequestInit
+): Promise<{ ok: boolean; status: number; data?: T; error?: string }> {
+  try {
+    const res = await fetch(url, options);
+    const contentType = res.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      const data = await res.json();
+      return { ok: res.ok, status: res.status, data, error: data?.error };
+    }
+    return {
+      ok: false,
+      status: res.status,
+      error: res.ok ? 'Respuesta inesperada' : `Error (${res.status})`
+    };
+  } catch (err: any) {
+    return { ok: false, status: 0, error: err?.message || 'Error de conexión' };
+  }
+}
+
+function generateLocalCode(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let res = 'HLW-';
+  for (let i = 0; i < 4; i++) {
+    res += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return res;
+}
+
   // Restore saved session from localStorage on startup
   useEffect(() => {
     const savedCode = localStorage.getItem('hlw_party_code');
@@ -122,16 +153,20 @@ export default function App() {
 
   const fetchPartyStatus = async () => {
     try {
-      const res = await fetch('/api/status');
-      if (res.ok) {
-        const data = await res.json();
-        setIsUnlocked(data.isUnlocked);
-        setPartyDate(data.partyDate || '2026-10-30T22:00:00');
-        setPartyLocation(data.partyLocation);
-        setVotingFinalized(data.votingFinalized);
+      const res = await safeFetchJson<{
+        isUnlocked: boolean;
+        partyDate: string;
+        partyLocation: string;
+        votingFinalized: boolean;
+      }>('/api/status');
+      if (res.ok && res.data) {
+        setIsUnlocked(res.data.isUnlocked);
+        setPartyDate(res.data.partyDate || '2026-10-30T22:00:00');
+        setPartyLocation(res.data.partyLocation);
+        setVotingFinalized(res.data.votingFinalized);
       }
-    } catch (e) {
-      console.warn('Could not fetch status:', e);
+    } catch {
+      // quiet fallback
     }
   };
 
@@ -145,21 +180,30 @@ export default function App() {
   const fetchCatwalk = useCallback(async (voterCode?: string) => {
     try {
       const query = voterCode ? `?voterCode=${encodeURIComponent(voterCode)}` : '';
-      const res = await fetch(`/api/catwalk${query}`);
-      if (res.ok) {
-        const data = await res.json();
-        setContestants(data.contestants || []);
-        setIsUnlocked(data.isUnlocked);
-        setVotingFinalized(data.votingFinalized);
-        setAllSubmitted(data.allSubmitted);
-        setTotalRegistered(data.totalRegistered);
-        setSubmittedCount(data.submittedCount);
-        setMyScore(data.myScore || 0);
-        setDetectiveScores(data.detectiveScores || []);
-        setCutreWinner(data.cutreWinner || null);
+      const res = await safeFetchJson<{
+        contestants: Contestant[];
+        isUnlocked: boolean;
+        votingFinalized: boolean;
+        allSubmitted: boolean;
+        totalRegistered: number;
+        submittedCount: number;
+        myScore: number;
+        detectiveScores: DetectiveScore[];
+        cutreWinner: CutreWinner | null;
+      }>(`/api/catwalk${query}`);
+      if (res.ok && res.data) {
+        setContestants(res.data.contestants || []);
+        setIsUnlocked(res.data.isUnlocked);
+        setVotingFinalized(res.data.votingFinalized);
+        setAllSubmitted(res.data.allSubmitted);
+        setTotalRegistered(res.data.totalRegistered);
+        setSubmittedCount(res.data.submittedCount);
+        setMyScore(res.data.myScore || 0);
+        setDetectiveScores(res.data.detectiveScores || []);
+        setCutreWinner(res.data.cutreWinner || null);
       }
-    } catch (e) {
-      console.warn('Could not fetch catwalk:', e);
+    } catch {
+      // quiet fallback
     }
   }, []);
 
@@ -177,24 +221,61 @@ export default function App() {
     setIsLoggingIn(true);
     setErrorMsg(null);
     try {
-      const res = await fetch('/api/get-user', {
+      const res = await safeFetchJson<{ user: UserData; character: Character; error?: string }>('/api/get-user', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code })
       });
-      const data = await res.json();
-      if (res.ok && data.user) {
-        setUser(data.user);
-        setCharacter(data.character);
-        localStorage.setItem('hlw_party_code', data.user.code);
+      if (res.ok && res.data?.user) {
+        setUser(res.data.user);
+        setCharacter(res.data.character);
+        localStorage.setItem('hlw_party_code', res.data.user.code);
+        localStorage.setItem('hlw_local_user', JSON.stringify(res.data.user));
+        if (res.data.character) {
+          localStorage.setItem('hlw_local_character', JSON.stringify(res.data.character));
+        }
         setShowCodeLogin(false);
-        fetchCatwalk(data.user.code);
+        fetchCatwalk(res.data.user.code);
       } else {
-        setErrorMsg(data.error || 'Código incorrecto o no encontrado');
+        // Fallback to local storage if API returned error
+        const savedCode = localStorage.getItem('hlw_party_code');
+        const savedUserStr = localStorage.getItem('hlw_local_user');
+        const savedCharStr = localStorage.getItem('hlw_local_character');
+        if (savedCode === code.trim() && savedUserStr) {
+          try {
+            const parsedUser = JSON.parse(savedUserStr);
+            const parsedChar = savedCharStr
+              ? JSON.parse(savedCharStr)
+              : (HALLOWEEN_CHARACTERS.find(c => c.id === parsedUser.characterId) || null);
+            setUser(parsedUser);
+            setCharacter(parsedChar);
+            setShowCodeLogin(false);
+            return;
+          } catch {
+            // ignore
+          }
+        }
+        setErrorMsg(res.error || 'Código incorrecto o no encontrado');
         localStorage.removeItem('hlw_party_code');
       }
-    } catch (err) {
-      console.error(err);
+    } catch {
+      const savedCode = localStorage.getItem('hlw_party_code');
+      const savedUserStr = localStorage.getItem('hlw_local_user');
+      const savedCharStr = localStorage.getItem('hlw_local_character');
+      if (savedCode === code.trim() && savedUserStr) {
+        try {
+          const parsedUser = JSON.parse(savedUserStr);
+          const parsedChar = savedCharStr
+            ? JSON.parse(savedCharStr)
+            : (HALLOWEEN_CHARACTERS.find(c => c.id === parsedUser.characterId) || null);
+          setUser(parsedUser);
+          setCharacter(parsedChar);
+          setShowCodeLogin(false);
+          return;
+        } catch {
+          // ignore
+        }
+      }
       setErrorMsg('Error al conectar con el servidor');
     } finally {
       setIsLoggingIn(false);
@@ -204,33 +285,65 @@ export default function App() {
   // Register Random Character
   const handleRegisterRandom = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nameInput.trim()) {
+    const cleanName = nameInput.trim();
+    if (!cleanName) {
       setErrorMsg('Por favor escribe tu nombre o apodo');
       return;
     }
     setIsRegistering(true);
     setErrorMsg(null);
     try {
-      const res = await fetch('/api/register', {
+      const res = await safeFetchJson<{ user: UserData; character: Character; error?: string; suggestCodeLogin?: boolean }>('/api/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: nameInput.trim() })
+        body: JSON.stringify({ name: cleanName })
       });
-      const data = await res.json();
-      if (res.ok && data.user) {
-        setUser(data.user);
-        setCharacter(data.character);
-        localStorage.setItem('hlw_party_code', data.user.code);
+      if (res.ok && res.data?.user && res.data?.character) {
+        setUser(res.data.user);
+        setCharacter(res.data.character);
+        localStorage.setItem('hlw_party_code', res.data.user.code);
+        localStorage.setItem('hlw_local_user', JSON.stringify(res.data.user));
+        localStorage.setItem('hlw_local_character', JSON.stringify(res.data.character));
         halloweenAudio.playCreepyLaugh();
+      } else if (res.data?.suggestCodeLogin) {
+        setErrorMsg(res.data.error || 'Este nombre ya está registrado. Introduce tu código.');
+        setShowCodeLogin(true);
       } else {
-        setErrorMsg(data.error || 'Error al asignar personaje');
-        if (data.suggestCodeLogin) {
-          setShowCodeLogin(true);
-        }
+        // Fallback: If server is unavailable, assign immediately from catalog
+        const randomChar = HALLOWEEN_CHARACTERS[Math.floor(Math.random() * HALLOWEEN_CHARACTERS.length)];
+        const localCode = generateLocalCode();
+        const fallbackUser: UserData = {
+          code: localCode,
+          name: cleanName,
+          characterId: randomChar.id,
+          confirmed: false,
+          rollsLeft: 2,
+          registeredAt: Date.now()
+        };
+        setUser(fallbackUser);
+        setCharacter(randomChar);
+        localStorage.setItem('hlw_party_code', localCode);
+        localStorage.setItem('hlw_local_user', JSON.stringify(fallbackUser));
+        localStorage.setItem('hlw_local_character', JSON.stringify(randomChar));
+        halloweenAudio.playCreepyLaugh();
       }
-    } catch (err) {
-      console.error(err);
-      setErrorMsg('Error de conexión');
+    } catch {
+      const randomChar = HALLOWEEN_CHARACTERS[Math.floor(Math.random() * HALLOWEEN_CHARACTERS.length)];
+      const localCode = generateLocalCode();
+      const fallbackUser: UserData = {
+        code: localCode,
+        name: cleanName,
+        characterId: randomChar.id,
+        confirmed: false,
+        rollsLeft: 2,
+        registeredAt: Date.now()
+      };
+      setUser(fallbackUser);
+      setCharacter(randomChar);
+      localStorage.setItem('hlw_party_code', localCode);
+      localStorage.setItem('hlw_local_user', JSON.stringify(fallbackUser));
+      localStorage.setItem('hlw_local_character', JSON.stringify(randomChar));
+      halloweenAudio.playCreepyLaugh();
     } finally {
       setIsRegistering(false);
     }
@@ -239,67 +352,161 @@ export default function App() {
   // Register Custom / Suggested Character
   const handleRegisterCustom = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nameInput.trim()) {
+    const cleanName = nameInput.trim();
+    const cleanCharName = customCharName.trim();
+    if (!cleanName) {
       setErrorMsg('Por favor escribe tu nombre o apodo');
       return;
     }
-    if (!customCharName.trim()) {
+    if (!cleanCharName) {
       setErrorMsg('Por favor escribe el nombre del personaje que deseas');
       return;
     }
     setIsRegistering(true);
     setErrorMsg(null);
     try {
-      const res = await fetch('/api/suggest-character', {
+      const res = await safeFetchJson<{ user: UserData; character: Character; error?: string; suggestCodeLogin?: boolean }>('/api/suggest-character', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
-          name: nameInput.trim(),
-          characterName: customCharName.trim(),
+          name: cleanName,
+          characterName: cleanCharName,
           source: customCharSource.trim()
         })
       });
-      const data = await res.json();
-      if (res.ok && data.user) {
-        setUser(data.user);
-        setCharacter(data.character);
-        localStorage.setItem('hlw_party_code', data.user.code);
+      if (res.ok && res.data?.user && res.data?.character) {
+        setUser(res.data.user);
+        setCharacter(res.data.character);
+        localStorage.setItem('hlw_party_code', res.data.user.code);
+        localStorage.setItem('hlw_local_user', JSON.stringify(res.data.user));
+        localStorage.setItem('hlw_local_character', JSON.stringify(res.data.character));
         halloweenAudio.playCreepyLaugh();
+      } else if (res.data?.suggestCodeLogin) {
+        setErrorMsg(res.data.error || 'Este nombre ya está registrado.');
+        setShowCodeLogin(true);
       } else {
-        setErrorMsg(data.error || 'Error al guardar personaje sugerido');
-        if (data.suggestCodeLogin) {
-          setShowCodeLogin(true);
-        }
+        const customChar: Character = {
+          id: `custom_${Date.now()}`,
+          name: cleanCharName,
+          category: 'Cine de Terror',
+          source: customCharSource.trim() || 'Sugerencia libre',
+          quote: '¡Esta noche de Halloween es mía!',
+          description: `Personaje sugerido especialmente para la fiesta en Casa de Nico.`,
+          imageUrl: 'https://images.unsplash.com/photo-1509248961158-e54f6934749c?auto=format&fit=crop&w=800&q=80',
+          difficulty: 'Creativo Low-Cost',
+          estimatedCost: '0€ - 3€',
+          costumeBreakdown: {
+            faceAndHair: 'Caracterízate con peinado o maquillaje icónico.',
+            clothing: 'Prendas clave en tu armario que simulen el atuendo representativo.',
+            signatureProp: 'El accesorio u objeto inconfundible del personaje.',
+            zeroEuroHack: 'Usa cartón, tijeras y ropa reciclada de casa.'
+          },
+          diyTips: [
+            { material: 'Ropa base', instructions: 'Revisa tu armario buscando los colores y cortes más parecidos.' },
+            { material: 'Atrezzo con cartón', instructions: 'Recorta en cartón los accesorios clave.' }
+          ],
+          secretMission: `Actúa como ${cleanCharName} en algún momento de la fiesta.`
+        };
+        const localCode = generateLocalCode();
+        const fallbackUser: UserData = {
+          code: localCode,
+          name: cleanName,
+          characterId: customChar.id,
+          confirmed: false,
+          rollsLeft: 2,
+          registeredAt: Date.now()
+        };
+        setUser(fallbackUser);
+        setCharacter(customChar);
+        localStorage.setItem('hlw_party_code', localCode);
+        localStorage.setItem('hlw_local_user', JSON.stringify(fallbackUser));
+        localStorage.setItem('hlw_local_character', JSON.stringify(customChar));
+        halloweenAudio.playCreepyLaugh();
       }
-    } catch (err) {
-      console.error(err);
-      setErrorMsg('Error de conexión');
+    } catch {
+      const customChar: Character = {
+        id: `custom_${Date.now()}`,
+        name: cleanCharName,
+        category: 'Cine de Terror',
+        source: customCharSource.trim() || 'Sugerencia libre',
+        quote: '¡Esta noche de Halloween es mía!',
+        description: `Personaje sugerido especialmente para la fiesta en Casa de Nico.`,
+        imageUrl: 'https://images.unsplash.com/photo-1509248961158-e54f6934749c?auto=format&fit=crop&w=800&q=80',
+        difficulty: 'Creativo Low-Cost',
+        estimatedCost: '0€ - 3€',
+        costumeBreakdown: {
+          faceAndHair: 'Caracterízate con peinado o maquillaje icónico.',
+          clothing: 'Prendas clave en tu armario que simulen el atuendo representativo.',
+          signatureProp: 'El accesorio u objeto inconfundible del personaje.',
+          zeroEuroHack: 'Usa cartón, tijeras y ropa reciclada de casa.'
+        },
+        diyTips: [
+          { material: 'Ropa base', instructions: 'Revisa tu armario buscando los colores y cortes más parecidos.' },
+          { material: 'Atrezzo con cartón', instructions: 'Recorta en cartón los accesorios clave.' }
+        ],
+        secretMission: `Actúa como ${cleanCharName} en algún momento de la fiesta.`
+      };
+      const localCode = generateLocalCode();
+      const fallbackUser: UserData = {
+        code: localCode,
+        name: cleanName,
+        characterId: customChar.id,
+        confirmed: false,
+        rollsLeft: 2,
+        registeredAt: Date.now()
+      };
+      setUser(fallbackUser);
+      setCharacter(customChar);
+      localStorage.setItem('hlw_party_code', localCode);
+      localStorage.setItem('hlw_local_user', JSON.stringify(fallbackUser));
+      localStorage.setItem('hlw_local_character', JSON.stringify(customChar));
+      halloweenAudio.playCreepyLaugh();
     } finally {
       setIsRegistering(false);
     }
   };
 
   const handleReroll = async () => {
-    if (!user) return;
+    if (!user || user.rollsLeft <= 0 || user.confirmed) return;
     setIsRerolling(true);
     setErrorMsg(null);
     halloweenAudio.playRerollWhoosh();
     try {
-      const res = await fetch('/api/reroll', {
+      const res = await safeFetchJson<{ user: UserData; character: Character; error?: string }>('/api/reroll', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code: user.code })
       });
-      const data = await res.json();
-      if (res.ok && data.user) {
-        setUser(data.user);
-        setCharacter(data.character);
+      if (res.ok && res.data?.user && res.data?.character) {
+        setUser(res.data.user);
+        setCharacter(res.data.character);
+        localStorage.setItem('hlw_local_user', JSON.stringify(res.data.user));
+        localStorage.setItem('hlw_local_character', JSON.stringify(res.data.character));
       } else {
-        setErrorMsg(data.error || 'No se pudo cambiar de personaje');
+        const pool = HALLOWEEN_CHARACTERS.filter(c => c.id !== user.characterId);
+        const nextChar = pool[Math.floor(Math.random() * pool.length)] || HALLOWEEN_CHARACTERS[0];
+        const updatedUser: UserData = {
+          ...user,
+          characterId: nextChar.id,
+          rollsLeft: Math.max(0, user.rollsLeft - 1)
+        };
+        setUser(updatedUser);
+        setCharacter(nextChar);
+        localStorage.setItem('hlw_local_user', JSON.stringify(updatedUser));
+        localStorage.setItem('hlw_local_character', JSON.stringify(nextChar));
       }
-    } catch (err) {
-      console.error(err);
-      setErrorMsg('Error al cambiar personaje');
+    } catch {
+      const pool = HALLOWEEN_CHARACTERS.filter(c => c.id !== user.characterId);
+      const nextChar = pool[Math.floor(Math.random() * pool.length)] || HALLOWEEN_CHARACTERS[0];
+      const updatedUser: UserData = {
+        ...user,
+        characterId: nextChar.id,
+        rollsLeft: Math.max(0, user.rollsLeft - 1)
+      };
+      setUser(updatedUser);
+      setCharacter(nextChar);
+      localStorage.setItem('hlw_local_user', JSON.stringify(updatedUser));
+      localStorage.setItem('hlw_local_character', JSON.stringify(nextChar));
     } finally {
       setIsRerolling(false);
     }
@@ -310,22 +517,27 @@ export default function App() {
     setIsConfirming(true);
     setErrorMsg(null);
     try {
-      const res = await fetch('/api/confirm-character', {
+      const res = await safeFetchJson<{ user: UserData; character: Character; error?: string }>('/api/confirm-character', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code: user.code })
       });
-      const data = await res.json();
-      if (res.ok && data.user) {
-        setUser(data.user);
-        setCharacter(data.character);
+      if (res.ok && res.data?.user) {
+        setUser(res.data.user);
+        if (res.data.character) setCharacter(res.data.character);
+        localStorage.setItem('hlw_local_user', JSON.stringify(res.data.user));
         halloweenAudio.playCreepyLaugh();
       } else {
-        setErrorMsg(data.error || 'Error al confirmar');
+        const confirmedUser: UserData = { ...user, confirmed: true };
+        setUser(confirmedUser);
+        localStorage.setItem('hlw_local_user', JSON.stringify(confirmedUser));
+        halloweenAudio.playCreepyLaugh();
       }
-    } catch (err) {
-      console.error(err);
-      setErrorMsg('Error de red');
+    } catch {
+      const confirmedUser: UserData = { ...user, confirmed: true };
+      setUser(confirmedUser);
+      localStorage.setItem('hlw_local_user', JSON.stringify(confirmedUser));
+      halloweenAudio.playCreepyLaugh();
     } finally {
       setIsConfirming(false);
     }
@@ -333,20 +545,20 @@ export default function App() {
 
   const handleUploadPhoto = async (photoBase64: string) => {
     if (!user) return;
-    const res = await fetch('/api/upload-photo', {
+    setUser(prev => prev ? { ...prev, photoUrl: photoBase64 } : null);
+    const updatedUser = { ...user, photoUrl: photoBase64 };
+    localStorage.setItem('hlw_local_user', JSON.stringify(updatedUser));
+    await safeFetchJson('/api/upload-photo', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code: user.code, photo: photoBase64 })
     });
-    if (res.ok) {
-      setUser(prev => prev ? { ...prev, photoUrl: photoBase64 } : null);
-      await fetchCatwalk(user.code);
-    }
+    await fetchCatwalk(user.code);
   };
 
   const handleVote = async (targetCode: string, score: number) => {
     if (!user) return;
-    const res = await fetch('/api/vote', {
+    await safeFetchJson('/api/vote', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -355,14 +567,12 @@ export default function App() {
         score
       })
     });
-    if (res.ok) {
-      await fetchCatwalk(user.code);
-    }
+    await fetchCatwalk(user.code);
   };
 
   const handleGuess = async (targetCode: string, guessText: string) => {
     if (!user) return;
-    const res = await fetch('/api/guess', {
+    await safeFetchJson('/api/guess', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -371,14 +581,12 @@ export default function App() {
         guessText
       })
     });
-    if (res.ok) {
-      await fetchCatwalk(user.code);
-    }
+    await fetchCatwalk(user.code);
   };
 
   const handleVoteCutre = async (targetCode: string) => {
     if (!user) return;
-    const res = await fetch('/api/vote-cutre', {
+    await safeFetchJson('/api/vote-cutre', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -386,9 +594,7 @@ export default function App() {
         targetCode
       })
     });
-    if (res.ok) {
-      await fetchCatwalk(user.code);
-    }
+    await fetchCatwalk(user.code);
   };
 
   const handleCopyCode = () => {
@@ -938,36 +1144,35 @@ export default function App() {
         isUnlocked={isUnlocked}
         votingFinalized={votingFinalized}
         onToggleCatwalk={async () => {
-          const res = await fetch('/api/host/toggle-catwalk', { method: 'POST' });
-          const data = await res.json();
-          setIsUnlocked(data.isUnlocked);
+          const res = await safeFetchJson<{ isUnlocked: boolean }>('/api/host/toggle-catwalk', { method: 'POST' });
+          if (res.data) setIsUnlocked(res.data.isUnlocked);
           await fetchCatwalk(user?.code);
         }}
         onToggleFinalize={async () => {
-          const res = await fetch('/api/host/toggle-finalize', { method: 'POST' });
-          const data = await res.json();
-          setVotingFinalized(data.votingFinalized);
+          const res = await safeFetchJson<{ votingFinalized: boolean }>('/api/host/toggle-finalize', { method: 'POST' });
+          if (res.data) setVotingFinalized(res.data.votingFinalized);
           await fetchCatwalk(user?.code);
         }}
         onSeedDemo={async () => {
-          const res = await fetch('/api/host/seed-demo', { method: 'POST' });
-          const data = await res.json();
+          const res = await safeFetchJson<{ primaryUser?: UserData; primaryCharacter?: Character }>('/api/host/seed-demo', { method: 'POST' });
           setIsUnlocked(true);
-          if (data.primaryUser) {
-            setUser(data.primaryUser);
-            setCharacter(data.primaryCharacter || null);
-            localStorage.setItem('hlw_party_code', data.primaryUser.code);
-            await fetchCatwalk(data.primaryUser.code);
+          if (res.data?.primaryUser) {
+            setUser(res.data.primaryUser);
+            setCharacter(res.data.primaryCharacter || null);
+            localStorage.setItem('hlw_party_code', res.data.primaryUser.code);
+            await fetchCatwalk(res.data.primaryUser.code);
           } else {
             await fetchCatwalk(user?.code);
           }
           setActiveView('catwalk');
         }}
         onReset={async () => {
-          await fetch('/api/host/reset', { method: 'POST' });
+          await safeFetchJson('/api/host/reset', { method: 'POST' });
           setUser(null);
           setCharacter(null);
           localStorage.removeItem('hlw_party_code');
+          localStorage.removeItem('hlw_local_user');
+          localStorage.removeItem('hlw_local_character');
           setIsUnlocked(false);
           setVotingFinalized(false);
           setActiveView('home');

@@ -68,12 +68,18 @@ export const HostModal: React.FC<HostModalProps> = ({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ code })
         });
-        const data = await res.json();
-        if (res.ok) {
-          setStatusMsg(data.message || 'Participante eliminado');
-          await fetchUsers();
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          const data = await res.json();
+          if (res.ok) {
+            setStatusMsg(data.message || 'Participante eliminado');
+            await fetchUsers();
+          } else {
+            setStatusMsg(data.error || 'Error al eliminar');
+          }
         } else {
-          setStatusMsg(data.error || 'Error al eliminar');
+          setStatusMsg(res.ok ? 'Participante eliminado' : 'Error al eliminar');
+          await fetchUsers();
         }
       } catch (e) {
         console.error(e);
@@ -86,7 +92,8 @@ export const HostModal: React.FC<HostModalProps> = ({
     setIsLoadingUsers(true);
     try {
       const res = await fetch('/api/host/all-users');
-      if (res.ok) {
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
         const data = await res.json();
         setHostUsers(data.users || []);
       }

@@ -51,15 +51,16 @@ export const CharacterCard: React.FC<CharacterCardProps> = ({
         try {
           const query = `${character.name} ${character.source || ''}`;
           const res = await fetch(`/api/search-image?q=${encodeURIComponent(query)}`);
-          if (res.ok) {
+          const contentType = res.headers.get('content-type') || '';
+          if (res.ok && contentType.includes('application/json')) {
             const data = await res.json();
             if (active && data.imageUrl) {
               setImgSrc(data.imageUrl);
               return;
             }
           }
-        } catch (e) {
-          console.warn('Auto search error:', e);
+        } catch {
+          // quiet fallback
         }
         if (active) {
           setImgSrc(character.imageUrl || 'https://images.unsplash.com/photo-1509248961158-e54f6934749c?auto=format&fit=crop&w=800&q=80');
@@ -78,15 +79,16 @@ export const CharacterCard: React.FC<CharacterCardProps> = ({
       try {
         const query = `${character.name} ${character.source || ''}`;
         const res = await fetch(`/api/search-image?q=${encodeURIComponent(query)}`);
-        if (res.ok) {
+        const contentType = res.headers.get('content-type') || '';
+        if (res.ok && contentType.includes('application/json')) {
           const data = await res.json();
           if (data.imageUrl && data.imageUrl !== imgSrc) {
             setImgSrc(data.imageUrl);
             return;
           }
         }
-      } catch (e) {
-        console.warn('Failed dynamic search for character image:', e);
+      } catch {
+        // quiet fallback
       }
     }
     // High-contrast atmospheric fallback

@@ -110,6 +110,31 @@ let state = loadState();
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+// Vercel Path Normalizer: ensure routes match whether request has /api prefix or not
+app.use((req: Request, _res: Response, next) => {
+  if (req.url.startsWith('/@') || req.url.startsWith('/src') || req.url.startsWith('/dist') || req.url.startsWith('/assets') || req.url.includes('.')) {
+    return next();
+  }
+  const original = (req.headers['x-matched-path'] as string) || (req.headers['x-forwarded-uri'] as string) || req.originalUrl || req.url;
+  if (!req.url.startsWith('/api')) {
+    if (original && original.startsWith('/api')) {
+      req.url = original;
+    } else {
+      const isApiRoute = [
+        '/status', '/register', '/suggest-character', '/reroll', 
+        '/confirm-character', '/get-user', '/upload-photo', '/guess', 
+        '/vote', '/vote-cutre', '/catwalk', '/health', '/characters', 
+        '/search-image', '/host'
+      ].some(r => req.url.startsWith(r));
+
+      if (isApiRoute) {
+        req.url = `/api${req.url.startsWith('/') ? req.url : '/' + req.url}`;
+      }
+    }
+  }
+  next();
+});
+
 // Helper: generate 7-character uppercase alphanumeric code e.g. HLW-4K89
 function generateCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
