@@ -433,8 +433,8 @@ export default function App() {
           code: localCode,
           name: cleanName,
           characterId: customChar.id,
-          confirmed: false,
-          rollsLeft: 2,
+          confirmed: true,
+          rollsLeft: 0,
           registeredAt: Date.now()
         };
         setUser(fallbackUser);
@@ -472,8 +472,8 @@ export default function App() {
         code: localCode,
         name: cleanName,
         characterId: customChar.id,
-        confirmed: false,
-        rollsLeft: 2,
+        confirmed: true,
+        rollsLeft: 0,
         registeredAt: Date.now()
       };
       setUser(fallbackUser);
@@ -820,6 +820,7 @@ export default function App() {
               onClick={() => {
                 setIsSuperAdmin(false);
                 localStorage.removeItem('hlw_is_superadmin');
+                setShowHostModal(false);
                 setActiveView('home');
               }}
               className="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-red-950/80 hover:bg-red-900 border border-red-500/40 text-red-300 hover:text-white cursor-pointer ml-1"
@@ -1374,6 +1375,12 @@ export default function App() {
         onSuperadminAuth={() => {
           setIsSuperAdmin(true);
           localStorage.setItem('hlw_is_superadmin', 'true');
+        }}
+        onHostLogout={() => {
+          setIsSuperAdmin(false);
+          localStorage.removeItem('hlw_is_superadmin');
+          setShowHostModal(false);
+          setActiveView('home');
         }}
         onToggleCatwalk={async () => {
           const res = await safeFetchJson<{ isUnlocked: boolean }>('/api/host/toggle-catwalk', { method: 'POST' });

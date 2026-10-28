@@ -28,6 +28,7 @@ interface HostModalProps {
   onOpenCeremony?: () => void;
   isSuperAdmin?: boolean;
   onSuperadminAuth?: () => void;
+  onHostLogout?: () => void;
 }
 
 export const HostModal: React.FC<HostModalProps> = ({
@@ -42,20 +43,32 @@ export const HostModal: React.FC<HostModalProps> = ({
   onOpenCatwalk,
   onOpenCeremony,
   isSuperAdmin,
-  onSuperadminAuth
+  onSuperadminAuth,
+  onHostLogout
 }) => {
   const [pin, setPin] = useState<string>('');
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(Boolean(isSuperAdmin));
   const [hostUsers, setHostUsers] = useState<HostUser[]>([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState<boolean>(false);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  const [userToDelete, setUserToDelete] = useState<{ code: string; name: string } | null>(null);
+
+  // Sync auth state strictly with isSuperAdmin
+  React.useEffect(() => {
+    if (!isSuperAdmin) {
+      setIsAuthenticated(false);
+      setPin('');
+    } else {
+      setIsAuthenticated(true);
+    }
+  }, [isSuperAdmin]);
 
   React.useEffect(() => {
     if (isOpen && (isSuperAdmin || isAuthenticated)) {
       setIsAuthenticated(true);
       fetchUsers();
     }
-  }, [isOpen, isSuperAdmin]);
+  }, [isOpen, isSuperAdmin, isAuthenticated]);
 
   if (!isOpen) return null;
 
@@ -72,85 +85,62 @@ export const HostModal: React.FC<HostModalProps> = ({
     }
   };
 
-  const handleDeleteUser = async (code: string, name: string) => {
-    if (confirm(`¿Eliminar a ${name} (${code}) de la fiesta? Se borrarán sus votos y foto.`)) {
-      try {
-        const res = await fetch('/api/host/delete-user', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ code })
-        });
-        const contentType = res.headers.get('content-type') || '';
-        if (contentType.includes('application/json')) {
-          const data = await res.json();
-          if (res.ok) {
-            setStatusMsg(data.message || 'Participante eliminado');
-            await fetchUsers();
-          } else {
-            setStatusMsg(data.error || 'Error al eliminar');
-          }
-        } else {
-          setStatusMsg(res.ok ? 'Participante eliminado' : 'Error al eliminar');
-          await fetchUsers();
-        }
-      } catch (e) {
-        console.error(e);
-        setStatusMsg('Error al conectar con el servidor');
+  const handleLogoutAdmin = () => {
+    setIsAuthenticated(false);
+    setPin('');
+    onHostLogout?.();
+    onClose();
+  };
+
+  const executeDeleteUser = async () => {
+    if (!userToDelete) return;
+    const { code, name } = userToDelete;
+    setUserToDelete(null);
+    setStatusMsg(`Eliminando a ${name}...`);
+    try {
+      const res = await fetch('/api/host/delete-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code })
+      });
+      // Clear from local storage if this was the local active user
+      const savedCode = localStorage.getItem('hlw_party_code');
+      if (savedCode === code) {
+        localStorage.removeItem('hlw_party_code');
+        localStorage.removeItem('hlw_local_user');
+        localStorage.removeItem('hlw_local_character');
       }
+      const data = await res.json().catch(() => null);
+      if (res.ok) {
+        setStatusMsg(`✅ ${name} (${code}) eliminado`);
+        await fetchUsers();
+      } else {
+        setStatusMsg(data?.error || 'Error al eliminar');
+      }
+    } catch (e) {
+      console.error(e);
+      setStatusMsg('Error al conectar con el servidor');
     }
   };
 
   const fetchUsers = async () => {
     setIsLoadingUsers(true);
+    setStatusMsg(null);
     try {
       const res = await fetch('/api/host/all-users');
       const contentType = res.headers.get('content-type') || '';
       if (res.ok && contentType.includes('application/json')) {
         const data = await res.json();
-        if (data.users && data.users.length > 0) {
+        if (data && Array.isArray(data.users)) {
           setHostUsers(data.users);
           return;
         }
       }
-      // If server returned 0 users or failed, check if active local user exists
-      const savedUserStr = localStorage.getItem('hlw_local_user');
-      if (savedUserStr) {
-        try {
-          const parsed = JSON.parse(savedUserStr);
-          setHostUsers([{
-            code: parsed.code,
-            name: parsed.name,
-            characterId: parsed.characterId,
-            confirmed: parsed.confirmed,
-            rollsLeft: parsed.rollsLeft ?? 0,
-            photoUrl: parsed.photoUrl,
-            registeredAt: parsed.registeredAt ?? Date.now()
-          }]);
-        } catch {
-          setHostUsers([]);
-        }
-      } else {
-        setHostUsers([]);
-      }
+      // If server responded with error or empty, do NOT re-populate deleted users
+      setHostUsers([]);
     } catch (err) {
       console.error('Error fetching host data:', err);
-      const savedUserStr = localStorage.getItem('hlw_local_user');
-      if (savedUserStr) {
-        try {
-          const parsed = JSON.parse(savedUserStr);
-          setHostUsers([{
-            code: parsed.code,
-            name: parsed.name,
-            characterId: parsed.characterId,
-            confirmed: parsed.confirmed,
-            rollsLeft: parsed.rollsLeft ?? 0,
-            photoUrl: parsed.photoUrl,
-            registeredAt: parsed.registeredAt ?? Date.now()
-          }]);
-        } catch {
-          setHostUsers([]);
-        }
-      }
+      setHostUsers([]);
     } finally {
       setIsLoadingUsers(false);
     }
@@ -334,14 +324,46 @@ export const HostModal: React.FC<HostModalProps> = ({
                 <button
                   onClick={fetchUsers}
                   disabled={isLoadingUsers}
-                  className="text-[11px] text-purple-400 hover:text-purple-200 underline"
+                  className="inline-flex items-center gap-1 text-[11px] font-bold text-orange-400 hover:text-orange-300 bg-purple-950/80 border border-purple-500/30 px-2.5 py-1 rounded-lg cursor-pointer transition-colors"
                 >
-                  Actualizar lista
+                  <RotateCcw className={`w-3 h-3 ${isLoadingUsers ? 'animate-spin' : ''}`} />
+                  <span>{isLoadingUsers ? 'Cargando...' : 'Actualizar'}</span>
                 </button>
               </div>
 
+              {/* Inline Delete Confirmation Box */}
+              {userToDelete && (
+                <div className="p-3 bg-red-950/90 border-2 border-red-500 rounded-2xl text-xs space-y-2.5 shadow-xl animate-in fade-in zoom-in-95">
+                  <div className="font-bold text-white flex items-center gap-1.5">
+                    <Trash2 className="w-4 h-4 text-red-400" />
+                    <span>¿Eliminar a {userToDelete.name} ({userToDelete.code})?</span>
+                  </div>
+                  <p className="text-red-200 text-[11px]">
+                    Se borrará de la lista del anfitrión, de la pasarela y se eliminarán todos sus votos y fotos.
+                  </p>
+                  <div className="flex gap-2 justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setUserToDelete(null)}
+                      className="px-3 py-1 bg-purple-900/60 hover:bg-purple-800 text-purple-200 rounded-xl text-xs font-semibold cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={executeDeleteUser}
+                      className="px-3 py-1 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-extrabold shadow cursor-pointer"
+                    >
+                      Sí, Eliminar
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {hostUsers.length === 0 ? (
-                <p className="text-xs text-purple-400 italic">No hay invitados registrados todavía.</p>
+                <div className="text-center py-4 text-xs text-purple-400 bg-purple-950/20 rounded-2xl border border-purple-500/20">
+                  <p className="italic">No hay invitados registrados en la base de datos todavía.</p>
+                </div>
               ) : (
                 <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
                   {hostUsers.map((u) => (
@@ -379,7 +401,8 @@ export const HostModal: React.FC<HostModalProps> = ({
                         </div>
 
                         <button
-                          onClick={() => handleDeleteUser(u.code, u.name)}
+                          type="button"
+                          onClick={() => setUserToDelete({ code: u.code, name: u.name })}
                           className="p-1.5 rounded-lg bg-red-950/60 hover:bg-red-850 text-red-400 hover:text-white border border-red-500/30 hover:border-red-400 transition-colors cursor-pointer"
                           title={`Eliminar a ${u.name} (${u.code})`}
                         >
@@ -390,6 +413,20 @@ export const HostModal: React.FC<HostModalProps> = ({
                   ))}
                 </div>
               )}
+            </div>
+
+            {/* Logout from Admin completely */}
+            <div className="pt-3 border-t border-purple-500/20 flex justify-between items-center">
+              <span className="text-[11px] text-purple-400">
+                Sesión de anfitrión activa
+              </span>
+              <button
+                type="button"
+                onClick={handleLogoutAdmin}
+                className="text-xs text-red-400 hover:text-red-300 font-bold px-3 py-1.5 rounded-xl bg-red-950/40 border border-red-500/30 hover:bg-red-900/60 transition-colors cursor-pointer"
+              >
+                Cerrar Sesión de Admin
+              </button>
             </div>
           </div>
         )}
