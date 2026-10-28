@@ -123,9 +123,10 @@ export const HostModal: React.FC<HostModalProps> = ({
     }
   };
 
+  const [showResetConfirm, setShowResetConfirm] = useState<boolean>(false);
+
   const fetchUsers = async () => {
     setIsLoadingUsers(true);
-    setStatusMsg(null);
     try {
       const res = await fetch('/api/host/all-users');
       const contentType = res.headers.get('content-type') || '';
@@ -136,7 +137,6 @@ export const HostModal: React.FC<HostModalProps> = ({
           return;
         }
       }
-      // If server responded with error or empty, do NOT re-populate deleted users
       setHostUsers([]);
     } catch (err) {
       console.error('Error fetching host data:', err);
@@ -147,26 +147,30 @@ export const HostModal: React.FC<HostModalProps> = ({
   };
 
   const handleSeed = async () => {
+    setIsLoadingUsers(true);
     setStatusMsg('Cargando participantes de prueba...');
     try {
       await onSeedDemo();
       await fetchUsers();
-      setStatusMsg('¡5 participantes de prueba añadidos y pasarela desbloqueada para probar!');
+      setStatusMsg('✅ ¡5 participantes de prueba cargados con fotos y votos en la pasarela!');
     } catch (err) {
       console.error(err);
       setStatusMsg('Error al cargar pruebas');
+    } finally {
+      setIsLoadingUsers(false);
     }
   };
 
-  const handleReset = async () => {
-    if (confirm('¿Seguro que quieres reiniciar la base de datos de la fiesta? Se borrarán todos los personajes asignados y fotos.')) {
-      try {
-        await onReset();
-        await fetchUsers();
-        setStatusMsg('Base de datos reiniciada');
-      } catch (err) {
-        console.error(err);
-      }
+  const executeReset = async () => {
+    setShowResetConfirm(false);
+    setStatusMsg('Reiniciando base de datos...');
+    try {
+      await onReset();
+      await fetchUsers();
+      setStatusMsg('✅ Base de datos reiniciada por completo');
+    } catch (err) {
+      console.error(err);
+      setStatusMsg('Error al reiniciar base de datos');
     }
   };
 
@@ -212,8 +216,21 @@ export const HostModal: React.FC<HostModalProps> = ({
         ) : (
           <div className="space-y-5">
             {statusMsg && (
-              <div className="p-3 bg-purple-950/80 border border-orange-500/40 rounded-xl text-xs text-orange-300">
-                {statusMsg}
+              <div className="p-3 bg-purple-950/80 border border-orange-500/40 rounded-xl text-xs text-orange-300 flex flex-col gap-2">
+                <span>{statusMsg}</span>
+                {statusMsg.includes('cargados') && onOpenCatwalk && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onOpenCatwalk();
+                    }}
+                    className="self-start px-3 py-1.5 bg-orange-600 hover:bg-orange-500 text-white rounded-xl text-xs font-bold cursor-pointer transition-all active:scale-95 shadow-md flex items-center gap-1.5"
+                  >
+                    <Eye className="w-3.5 h-3.5" />
+                    <span>Verlos ahora en la Pasarela en Directo</span>
+                  </button>
+                )}
               </div>
             )}
 
@@ -296,22 +313,54 @@ export const HostModal: React.FC<HostModalProps> = ({
               {/* Demo test seed */}
               <div className="flex gap-2">
                 <button
+                  type="button"
                   onClick={handleSeed}
-                  className="flex-1 flex items-center justify-center gap-2 bg-purple-900/70 hover:bg-purple-800 border border-purple-500/40 text-purple-200 py-2.5 px-3 rounded-xl text-xs font-bold cursor-pointer transition-colors"
+                  disabled={isLoadingUsers}
+                  className="flex-1 flex items-center justify-center gap-2 bg-purple-900/70 hover:bg-purple-800 border border-purple-500/40 text-purple-200 py-2.5 px-3 rounded-xl text-xs font-bold cursor-pointer transition-colors active:scale-95"
                 >
                   <Sparkles className="w-3.5 h-3.5 text-orange-400" />
-                  <span>Cargar 5 Amigos de Prueba con Fotos y Votos</span>
+                  <span>{isLoadingUsers ? 'Cargando...' : 'Cargar 5 Amigos de Prueba con Fotos y Votos'}</span>
                 </button>
 
                 <button
-                  onClick={handleReset}
-                  className="flex items-center justify-center gap-1.5 bg-red-950/50 hover:bg-red-900/60 border border-red-500/40 text-red-300 py-2.5 px-3 rounded-xl text-xs font-bold cursor-pointer transition-colors"
+                  type="button"
+                  onClick={() => setShowResetConfirm(true)}
+                  className="flex items-center justify-center gap-1.5 bg-red-950/50 hover:bg-red-900/60 border border-red-500/40 text-red-300 py-2.5 px-3 rounded-xl text-xs font-bold cursor-pointer transition-colors active:scale-95"
                   title="Reiniciar todo"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
                   <span>Limpiar</span>
                 </button>
               </div>
+
+              {/* Inline Reset Entire DB Confirmation Box */}
+              {showResetConfirm && (
+                <div className="p-3 bg-red-950/90 border-2 border-red-500 rounded-2xl text-xs space-y-2.5 shadow-xl animate-in fade-in zoom-in-95">
+                  <div className="font-bold text-white flex items-center gap-1.5">
+                    <RotateCcw className="w-4 h-4 text-red-400" />
+                    <span>¿Reiniciar fiesta y vaciar la lista por completo?</span>
+                  </div>
+                  <p className="text-red-200 text-[11px]">
+                    Se borrarán todos los participantes, votos, fotos y la pasarela se volverá a bloquear.
+                  </p>
+                  <div className="flex gap-2 justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setShowResetConfirm(false)}
+                      className="px-3 py-1 bg-purple-900/60 hover:bg-purple-800 text-purple-200 rounded-xl text-xs font-semibold cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={executeReset}
+                      className="px-3 py-1 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-extrabold shadow cursor-pointer"
+                    >
+                      Sí, Vaciar Todo
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* List of Registered Guests and their Codes */}

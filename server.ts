@@ -92,71 +92,7 @@ function loadState(): PartyState {
   return { ...DEFAULT_STATE };
 }
 
-const CLOUD_SYNC_URL = 'https://api.restful-api.dev/objects/ff808181a09d98f701a182515b0b3694';
-let lastCloudFetchTime = 0;
-let isSyncing = false;
-
-async function syncFromCloud(): Promise<void> {
-  const now = Date.now();
-  if (isSyncing || now - lastCloudFetchTime < 2500) return;
-  isSyncing = true;
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 2000);
-    const res = await fetch(CLOUD_SYNC_URL, { signal: controller.signal });
-    clearTimeout(timer);
-    if (res.ok) {
-      const json = await res.json();
-      if (json && json.data && typeof json.data === 'object') {
-        const cloudState = json.data;
-        state = {
-          ...DEFAULT_STATE,
-          ...cloudState,
-          partyDate: '2026-10-30T22:00:00',
-          partyLocation: 'Casa de Nico',
-          users: cloudState.users || {},
-          votes: cloudState.votes || {},
-          guesses: cloudState.guesses || {},
-          cutreVotes: cloudState.cutreVotes || {},
-          customCharacters: cloudState.customCharacters || {}
-        };
-        lastCloudFetchTime = now;
-        try {
-          fs.writeFileSync(DB_FILE, JSON.stringify(state, null, 2), 'utf-8');
-        } catch {}
-      }
-    }
-  } catch (err) {
-    // Graceful fallback to local file
-  } finally {
-    isSyncing = false;
-  }
-}
-
-async function pushToCloud(stateToPush: PartyState): Promise<void> {
-  try {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 2500);
-    await fetch(CLOUD_SYNC_URL, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: 'Halloween Party Central State',
-        data: stateToPush
-      }),
-      signal: controller.signal
-    });
-    clearTimeout(timer);
-    lastCloudFetchTime = Date.now();
-  } catch (err) {
-    console.warn('Cloud sync error (fallback to local):', err);
-  }
-}
-
 let state: PartyState = loadState();
-
-// Initial background sync
-syncFromCloud().catch(() => {});
 
 function getState(): PartyState {
   try {
@@ -168,6 +104,7 @@ function getState(): PartyState {
           ...DEFAULT_STATE,
           ...parsed,
           partyDate: '2026-10-30T22:00:00',
+          partyLocation: 'Casa de Nico',
           users: parsed.users || {},
           votes: parsed.votes || {},
           guesses: parsed.guesses || {},
@@ -192,17 +129,14 @@ function saveState(stateToSave: PartyState) {
   } catch (err) {
     console.error('Error saving party state:', err);
   }
-  // Sync to central cloud storage across all devices
-  pushToCloud(stateToSave).catch(() => {});
 }
 
 // Express middlewares - 50MB limit for high-res mobile camera photo uploads
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Middleware to sync state on every request
-app.use(async (_req: Request, _res: Response, next) => {
-  await syncFromCloud();
+// Middleware to reload state on every request
+app.use((_req: Request, _res: Response, next) => {
   getState();
   next();
 });
@@ -1057,8 +991,21 @@ app.post('/api/host/seed-demo', (_req: Request, res: Response) => {
       }
     ];
 
+    // Clean up any previously seeded demo users to ensure a clean 5-person roster
+    const demoNames = new Set(demoUsers.map(d => d.name));
+    for (const c of Object.keys(state.users)) {
+      if (demoNames.has(state.users[c].name)) {
+        delete state.users[c];
+        delete state.votes[c];
+        delete state.guesses[c];
+        delete state.cutreVotes[c];
+      }
+    }
+
+    const createdCodes: string[] = [];
     for (const d of demoUsers) {
       const code = generateCode();
+      createdCodes.push(code);
       state.users[code] = {
         code,
         name: d.name,

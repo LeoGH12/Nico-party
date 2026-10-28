@@ -1403,7 +1403,10 @@ export default function App() {
         onSeedDemo={async () => {
           const res = await safeFetchJson<{ primaryUser?: UserData; primaryCharacter?: Character }>('/api/host/seed-demo', { method: 'POST' });
           setIsUnlocked(true);
-          if (res.data?.primaryUser) {
+          if (isSuperAdmin) {
+            // Keep Nico in pure superadmin observer mode without forcing a user profile
+            await fetchCatwalk('ADMIN');
+          } else if (res.data?.primaryUser) {
             setUser(res.data.primaryUser);
             setCharacter(res.data.primaryCharacter || null);
             localStorage.setItem('hlw_party_code', res.data.primaryUser.code);
@@ -1412,25 +1415,7 @@ export default function App() {
               localStorage.setItem('hlw_local_character', JSON.stringify(res.data.primaryCharacter));
             }
             await fetchCatwalk(res.data.primaryUser.code);
-          } else {
-            const ghostface = HALLOWEEN_CHARACTERS.find(c => c.id === 'ghostface') || HALLOWEEN_CHARACTERS[0];
-            const primary: UserData = {
-              code: 'HLW-VGHZ',
-              name: 'Nico (Anfitrión)',
-              characterId: ghostface.id,
-              confirmed: true,
-              rollsLeft: 0,
-              photoUrl: 'https://images.unsplash.com/photo-1509248961158-e54f6934749c?auto=format&fit=crop&w=600&q=80',
-              registeredAt: Date.now()
-            };
-            setUser(primary);
-            setCharacter(ghostface);
-            localStorage.setItem('hlw_party_code', primary.code);
-            localStorage.setItem('hlw_local_user', JSON.stringify(primary));
-            localStorage.setItem('hlw_local_character', JSON.stringify(ghostface));
-            await fetchCatwalk(primary.code);
           }
-          setActiveView('catwalk');
         }}
         onReset={async () => {
           await safeFetchJson('/api/host/reset', { method: 'POST' });
