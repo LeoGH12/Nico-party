@@ -95,10 +95,50 @@ export const HostModal: React.FC<HostModalProps> = ({
       const contentType = res.headers.get('content-type') || '';
       if (res.ok && contentType.includes('application/json')) {
         const data = await res.json();
-        setHostUsers(data.users || []);
+        if (data.users && data.users.length > 0) {
+          setHostUsers(data.users);
+          return;
+        }
+      }
+      // If server returned 0 users or failed, check if active local user exists
+      const savedUserStr = localStorage.getItem('hlw_local_user');
+      if (savedUserStr) {
+        try {
+          const parsed = JSON.parse(savedUserStr);
+          setHostUsers([{
+            code: parsed.code,
+            name: parsed.name,
+            characterId: parsed.characterId,
+            confirmed: parsed.confirmed,
+            rollsLeft: parsed.rollsLeft ?? 0,
+            photoUrl: parsed.photoUrl,
+            registeredAt: parsed.registeredAt ?? Date.now()
+          }]);
+        } catch {
+          setHostUsers([]);
+        }
+      } else {
+        setHostUsers([]);
       }
     } catch (err) {
       console.error('Error fetching host data:', err);
+      const savedUserStr = localStorage.getItem('hlw_local_user');
+      if (savedUserStr) {
+        try {
+          const parsed = JSON.parse(savedUserStr);
+          setHostUsers([{
+            code: parsed.code,
+            name: parsed.name,
+            characterId: parsed.characterId,
+            confirmed: parsed.confirmed,
+            rollsLeft: parsed.rollsLeft ?? 0,
+            photoUrl: parsed.photoUrl,
+            registeredAt: parsed.registeredAt ?? Date.now()
+          }]);
+        } catch {
+          setHostUsers([]);
+        }
+      }
     } finally {
       setIsLoadingUsers(false);
     }

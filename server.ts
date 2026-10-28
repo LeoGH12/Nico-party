@@ -83,19 +83,45 @@ function loadState(): PartyState {
           cutreVotes: parsed.cutreVotes || {},
           customCharacters: parsed.customCharacters || {}
         };
-        saveState(loaded);
         return loaded;
       }
     }
   } catch (err) {
     console.error('Error loading party state, using default:', err);
   }
-  saveState(DEFAULT_STATE);
   return { ...DEFAULT_STATE };
+}
+
+let state: PartyState = loadState();
+
+function getState(): PartyState {
+  try {
+    if (fs.existsSync(DB_FILE)) {
+      const raw = fs.readFileSync(DB_FILE, 'utf-8');
+      if (raw && raw.trim().length > 0) {
+        const parsed = JSON.parse(raw);
+        state = {
+          ...DEFAULT_STATE,
+          ...parsed,
+          partyDate: parsed.partyDate || '2026-10-30T22:00:00',
+          users: parsed.users || {},
+          votes: parsed.votes || {},
+          guesses: parsed.guesses || {},
+          cutreVotes: parsed.cutreVotes || {},
+          customCharacters: parsed.customCharacters || {}
+        };
+        return state;
+      }
+    }
+  } catch (err) {
+    console.error('Error reloading party state:', err);
+  }
+  return state;
 }
 
 function saveState(stateToSave: PartyState) {
   try {
+    state = stateToSave;
     const tempFile = `${DB_FILE}.tmp`;
     fs.writeFileSync(tempFile, JSON.stringify(stateToSave, null, 2), 'utf-8');
     fs.renameSync(tempFile, DB_FILE);
@@ -104,11 +130,15 @@ function saveState(stateToSave: PartyState) {
   }
 }
 
-let state = loadState();
-
 // Express middlewares - 50MB limit for high-res mobile camera photo uploads
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
+// Middleware to sync state on every request
+app.use((_req: Request, _res: Response, next) => {
+  getState();
+  next();
+});
 
 // Vercel Path Normalizer: ensure routes match whether request has /api prefix or not
 app.use((req: Request, _res: Response, next) => {

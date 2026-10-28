@@ -1145,12 +1145,20 @@ function generateLocalCode(): string {
         votingFinalized={votingFinalized}
         onToggleCatwalk={async () => {
           const res = await safeFetchJson<{ isUnlocked: boolean }>('/api/host/toggle-catwalk', { method: 'POST' });
-          if (res.data) setIsUnlocked(res.data.isUnlocked);
+          if (res.data) {
+            setIsUnlocked(res.data.isUnlocked);
+          } else {
+            setIsUnlocked(prev => !prev);
+          }
           await fetchCatwalk(user?.code);
         }}
         onToggleFinalize={async () => {
           const res = await safeFetchJson<{ votingFinalized: boolean }>('/api/host/toggle-finalize', { method: 'POST' });
-          if (res.data) setVotingFinalized(res.data.votingFinalized);
+          if (res.data) {
+            setVotingFinalized(res.data.votingFinalized);
+          } else {
+            setVotingFinalized(prev => !prev);
+          }
           await fetchCatwalk(user?.code);
         }}
         onSeedDemo={async () => {
@@ -1160,9 +1168,28 @@ function generateLocalCode(): string {
             setUser(res.data.primaryUser);
             setCharacter(res.data.primaryCharacter || null);
             localStorage.setItem('hlw_party_code', res.data.primaryUser.code);
+            localStorage.setItem('hlw_local_user', JSON.stringify(res.data.primaryUser));
+            if (res.data.primaryCharacter) {
+              localStorage.setItem('hlw_local_character', JSON.stringify(res.data.primaryCharacter));
+            }
             await fetchCatwalk(res.data.primaryUser.code);
           } else {
-            await fetchCatwalk(user?.code);
+            const ghostface = HALLOWEEN_CHARACTERS.find(c => c.id === 'ghostface') || HALLOWEEN_CHARACTERS[0];
+            const primary: UserData = {
+              code: 'HLW-VGHZ',
+              name: 'Nico (Anfitrión)',
+              characterId: ghostface.id,
+              confirmed: true,
+              rollsLeft: 0,
+              photoUrl: 'https://images.unsplash.com/photo-1509248961158-e54f6934749c?auto=format&fit=crop&w=600&q=80',
+              registeredAt: Date.now()
+            };
+            setUser(primary);
+            setCharacter(ghostface);
+            localStorage.setItem('hlw_party_code', primary.code);
+            localStorage.setItem('hlw_local_user', JSON.stringify(primary));
+            localStorage.setItem('hlw_local_character', JSON.stringify(ghostface));
+            await fetchCatwalk(primary.code);
           }
           setActiveView('catwalk');
         }}
