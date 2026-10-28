@@ -26,6 +26,8 @@ interface HostModalProps {
   onReset: () => Promise<void>;
   onOpenCatwalk?: () => void;
   onOpenCeremony?: () => void;
+  isSuperAdmin?: boolean;
+  onSuperadminAuth?: () => void;
 }
 
 export const HostModal: React.FC<HostModalProps> = ({
@@ -38,13 +40,22 @@ export const HostModal: React.FC<HostModalProps> = ({
   onSeedDemo,
   onReset,
   onOpenCatwalk,
-  onOpenCeremony
+  onOpenCeremony,
+  isSuperAdmin,
+  onSuperadminAuth
 }) => {
   const [pin, setPin] = useState<string>('');
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(Boolean(isSuperAdmin));
   const [hostUsers, setHostUsers] = useState<HostUser[]>([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState<boolean>(false);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (isOpen && (isSuperAdmin || isAuthenticated)) {
+      setIsAuthenticated(true);
+      fetchUsers();
+    }
+  }, [isOpen, isSuperAdmin]);
 
   if (!isOpen) return null;
 
@@ -55,6 +66,7 @@ export const HostModal: React.FC<HostModalProps> = ({
       setIsAuthenticated(true);
       setStatusMsg(null);
       fetchUsers();
+      onSuperadminAuth?.();
     } else {
       setStatusMsg('Contraseña incorrecta');
     }

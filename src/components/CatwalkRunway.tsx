@@ -308,6 +308,25 @@ export const CatwalkRunway: React.FC<CatwalkRunwayProps> = ({
         onChange={handleFileChange}
       />
 
+      {/* Quick Navigation and Refresh bar */}
+      <div className="flex items-center justify-between gap-2">
+        {onGoToLogin && (
+          <button
+            onClick={onGoToLogin}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-purple-950/80 hover:bg-purple-900 text-purple-200 text-xs font-bold border border-purple-500/30 cursor-pointer transition-all shadow-md active:scale-95"
+          >
+            <span>← Volver a Mi Ficha / Inicio</span>
+          </button>
+        )}
+        <button
+          onClick={onRefresh}
+          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-orange-600/30 hover:bg-orange-600/50 text-orange-300 text-xs font-bold border border-orange-500/40 cursor-pointer transition-all shadow-md active:scale-95 ml-auto"
+        >
+          <RefreshCw className="w-3.5 h-3.5" />
+          <span>Actualizar</span>
+        </button>
+      </div>
+
       {/* Header Banner */}
       <div className="relative overflow-hidden bg-gradient-to-r from-purple-950 via-[#180a2c] to-orange-950/80 border-2 border-orange-500/40 rounded-3xl p-5 sm:p-6 text-center glow-box-orange">
         <div className="inline-flex items-center gap-2 bg-orange-500/20 text-orange-400 border border-orange-500/40 px-3.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider mb-2">
@@ -430,8 +449,8 @@ export const CatwalkRunway: React.FC<CatwalkRunwayProps> = ({
         </div>
       )}
 
-      {/* PHOTO BOOTH SECTION (Take photo / retake / confirm - only if registered user) */}
-      {myCode && (
+      {/* PHOTO BOOTH SECTION (Take photo / retake / confirm - only if registered participant) */}
+      {myCode && myCode !== 'ADMIN' && (
       <div className="bg-[#150c26] border border-purple-500/40 rounded-3xl p-5 sm:p-6 glow-box-purple">
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
           <div>
@@ -535,6 +554,32 @@ export const CatwalkRunway: React.FC<CatwalkRunwayProps> = ({
           </div>
         )}
       </div>
+      )}
+
+      {/* SUPERADMIN OBSERVER BANNER */}
+      {myCode === 'ADMIN' && (
+        <div className="bg-gradient-to-r from-purple-950/90 via-[#180a2c] to-orange-950/90 border border-orange-500/50 rounded-3xl p-4 sm:p-5 flex flex-col sm:flex-row items-center justify-between gap-3 glow-box-orange">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl select-none">👑</span>
+            <div>
+              <div className="text-xs font-black text-amber-400 uppercase tracking-wider">
+                VISTA SUPERADMIN (MODO OBSERVADOR TOTAL)
+              </div>
+              <p className="text-xs text-purple-200 mt-0.5">
+                Estás visualizando la pasarela en tiempo real con privilegios de anfitrión. No necesitas subir foto para disfrutar del desfile ni para probar las votaciones.
+              </p>
+            </div>
+          </div>
+          {onOpenCeremony && (
+            <button
+              onClick={onOpenCeremony}
+              className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-black text-xs font-black py-2.5 px-4 rounded-xl shadow-lg cursor-pointer transition-transform shrink-0"
+            >
+              <Film className="w-4 h-4 fill-black" />
+              <span>Gala de Ganadores</span>
+            </button>
+          )}
+        </div>
       )}
 
       {/* DETECTIVE SCORE BADGE & SUBMISSION COUNTER */}

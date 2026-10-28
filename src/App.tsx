@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   Skull, 
   Sparkles, 
@@ -20,7 +20,9 @@ import {
   CheckCircle2,
   Lock,
   Eye,
-  Film
+  Film,
+  Crown,
+  Trophy
 } from 'lucide-react';
 import { AudioPlayer } from './components/AudioPlayer.tsx';
 import { CountdownTimer } from './components/CountdownTimer.tsx';
@@ -73,6 +75,12 @@ interface CutreWinner {
 export default function App() {
   const [user, setUser] = useState<UserData | null>(null);
   const [character, setCharacter] = useState<Character | null>(null);
+  const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(() => {
+    return localStorage.getItem('hlw_is_superadmin') === 'true';
+  });
+  const [liveNotification, setLiveNotification] = useState<{ message: string; timestamp: number } | null>(null);
+  const prevContestantPhotosRef = useRef<Map<string, string>>(new Map());
+  const isInitialPollRef = useRef<boolean>(true);
   
   // Navigation active view ('home' for registration/lockdown, 'catwalk' for live runway & voting)
   const [activeView, setActiveView] = useState<'home' | 'catwalk'>('home');
@@ -110,36 +118,46 @@ export default function App() {
   // Host modal
   const [showHostModal, setShowHostModal] = useState<boolean>(false);
 
-// Helper: safe JSON fetcher that avoids SyntaxError on HTML 404/500 responses
-async function safeFetchJson<T = any>(
-  url: string,
-  options?: RequestInit
-): Promise<{ ok: boolean; status: number; data?: T; error?: string }> {
-  try {
-    const res = await fetch(url, options);
-    const contentType = res.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) {
-      const data = await res.json();
-      return { ok: res.ok, status: res.status, data, error: data?.error };
+  // Helper: safe JSON fetcher that avoids SyntaxError on HTML 404/500 responses
+  async function safeFetchJson<T = any>(
+    url: string,
+    options?: RequestInit
+  ): Promise<{ ok: boolean; status: number; data?: T; error?: string }> {
+    try {
+      const res = await fetch(url, options);
+      const contentType = res.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await res.json();
+        return { ok: res.ok, status: res.status, data, error: data?.error };
+      }
+      return {
+        ok: false,
+        status: res.status,
+        error: res.ok ? 'Respuesta inesperada' : `Error (${res.status})`
+      };
+    } catch (err: any) {
+      return { ok: false, status: 0, error: err?.message || 'Error de conexión' };
     }
-    return {
-      ok: false,
-      status: res.status,
-      error: res.ok ? 'Respuesta inesperada' : `Error (${res.status})`
-    };
-  } catch (err: any) {
-    return { ok: false, status: 0, error: err?.message || 'Error de conexión' };
   }
-}
 
-function generateLocalCode(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let res = 'HLW-';
-  for (let i = 0; i < 4; i++) {
-    res += chars.charAt(Math.floor(Math.random() * chars.length));
+  function generateLocalCode(): string {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    let res = 'HLW-';
+    for (let i = 0; i < 4; i++) {
+      res += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return res;
   }
-  return res;
-}
+
+  // Auto-dismiss live notification toast after 4.5 seconds
+  useEffect(() => {
+    if (liveNotification) {
+      const timer = setTimeout(() => {
+        setLiveNotification(null);
+      }, 4500);
+      return () => clearTimeout(timer);
+    }
+  }, [liveNotification]);
 
   // Restore saved session from localStorage on startup
   useEffect(() => {
@@ -147,35 +165,8 @@ function generateLocalCode(): string {
     if (savedCode) {
       fetchUserByCode(savedCode);
     }
-    fetchPartyStatus();
     fetchCatwalk();
   }, []);
-
-  const fetchPartyStatus = async () => {
-    try {
-      const res = await safeFetchJson<{
-        isUnlocked: boolean;
-        partyDate: string;
-        partyLocation: string;
-        votingFinalized: boolean;
-      }>('/api/status');
-      if (res.ok && res.data) {
-        setIsUnlocked(res.data.isUnlocked);
-        setPartyDate(res.data.partyDate || '2026-10-30T22:00:00');
-        setPartyLocation(res.data.partyLocation);
-        setVotingFinalized(res.data.votingFinalized);
-      }
-    } catch {
-      // quiet fallback
-    }
-  };
-
-  // Strictly enforce that users cannot be on catwalk view if catwalk is locked
-  useEffect(() => {
-    if (!isUnlocked && activeView === 'catwalk') {
-      setActiveView('home');
-    }
-  }, [isUnlocked, activeView]);
 
   const fetchCatwalk = useCallback(async (voterCode?: string) => {
     try {
@@ -187,13 +178,43 @@ function generateLocalCode(): string {
         allSubmitted: boolean;
         totalRegistered: number;
         submittedCount: number;
+        partyDate?: string;
+        partyLocation?: string;
         myScore: number;
         detectiveScores: DetectiveScore[];
         cutreWinner: CutreWinner | null;
       }>(`/api/catwalk${query}`);
+
       if (res.ok && res.data) {
-        setContestants(res.data.contestants || []);
+        const newContestants = res.data.contestants || [];
+
+        // WhatsApp-like live detection of newly uploaded photos!
+        if (!isInitialPollRef.current) {
+          for (const c of newContestants) {
+            if (c.photoUrl && !prevContestantPhotosRef.current.get(c.code)) {
+              setLiveNotification({
+                message: `📸 ¡${c.name} acaba de subir su foto a la pasarela!`,
+                timestamp: Date.now()
+              });
+              halloweenAudio.playWhoosh();
+              break;
+            }
+          }
+        } else {
+          isInitialPollRef.current = false;
+        }
+
+        // Cache contestant photo status
+        const newMap = new Map<string, string>();
+        for (const c of newContestants) {
+          if (c.photoUrl) newMap.set(c.code, c.photoUrl);
+        }
+        prevContestantPhotosRef.current = newMap;
+
+        setContestants(newContestants);
         setIsUnlocked(res.data.isUnlocked);
+        if (res.data.partyDate) setPartyDate(res.data.partyDate);
+        if (res.data.partyLocation) setPartyLocation(res.data.partyLocation);
         setVotingFinalized(res.data.votingFinalized);
         setAllSubmitted(res.data.allSubmitted);
         setTotalRegistered(res.data.totalRegistered);
@@ -207,15 +228,15 @@ function generateLocalCode(): string {
     }
   }, []);
 
-  // Periodic polling for real-time live synchronization (every 1.5 seconds)
+  // Periodic polling for real-time live synchronization (smooth 2.5s cadence)
   useEffect(() => {
-    fetchCatwalk(user?.code);
+    const codeToPass = isSuperAdmin ? undefined : user?.code;
+    fetchCatwalk(codeToPass);
     const interval = setInterval(() => {
-      fetchCatwalk(user?.code);
-      fetchPartyStatus();
-    }, 1500);
+      fetchCatwalk(codeToPass);
+    }, 2500);
     return () => clearInterval(interval);
-  }, [user?.code, fetchCatwalk]);
+  }, [user?.code, isSuperAdmin, fetchCatwalk]);
 
   const fetchUserByCode = async (code: string) => {
     setIsLoggingIn(true);
@@ -557,44 +578,47 @@ function generateLocalCode(): string {
   };
 
   const handleVote = async (targetCode: string, score: number) => {
-    if (!user) return;
+    const voterCode = user?.code || (isSuperAdmin ? 'ADMIN' : '');
+    if (!voterCode) return;
     await safeFetchJson('/api/vote', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        voterCode: user.code,
+        voterCode,
         targetCode,
         score
       })
     });
-    await fetchCatwalk(user.code);
+    await fetchCatwalk(voterCode);
   };
 
   const handleGuess = async (targetCode: string, guessText: string) => {
-    if (!user) return;
+    const guesserCode = user?.code || (isSuperAdmin ? 'ADMIN' : '');
+    if (!guesserCode) return;
     await safeFetchJson('/api/guess', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        guesserCode: user.code,
+        guesserCode,
         targetCode,
         guessText
       })
     });
-    await fetchCatwalk(user.code);
+    await fetchCatwalk(guesserCode);
   };
 
   const handleVoteCutre = async (targetCode: string) => {
-    if (!user) return;
+    const voterCode = user?.code || (isSuperAdmin ? 'ADMIN' : '');
+    if (!voterCode) return;
     await safeFetchJson('/api/vote-cutre', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        voterCode: user.code,
+        voterCode,
         targetCode
       })
     });
-    await fetchCatwalk(user.code);
+    await fetchCatwalk(voterCode);
   };
 
   const handleCopyCode = () => {
@@ -655,7 +679,23 @@ function generateLocalCode(): string {
           </button>
 
           {/* Catwalk / Live Voting nav button or locked badge */}
-          {!isUnlocked ? (
+          {isSuperAdmin ? (
+            <button
+              onClick={() => {
+                setActiveView(activeView === 'catwalk' ? 'home' : 'catwalk');
+                fetchCatwalk();
+              }}
+              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer border shrink-0 ${
+                activeView === 'catwalk'
+                  ? 'bg-orange-600 border-orange-400 text-white shadow-md shadow-orange-600/40'
+                  : 'bg-purple-950/80 border-purple-500/40 text-purple-200 hover:text-orange-400'
+              }`}
+              title="Superadmin: Ver pasarela o inicio"
+            >
+              <Eye className="w-3.5 h-3.5 text-orange-400" />
+              <span>{activeView === 'catwalk' ? 'Ver Inicio' : 'Ver Pasarela'}</span>
+            </button>
+          ) : !isUnlocked ? (
             <div 
               className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full text-xs font-bold bg-purple-950/80 border border-purple-500/30 text-purple-300 select-none shrink-0"
               title="Los juegos y la pasarela están bloqueados hasta el Viernes 30 a las 22:00"
@@ -698,14 +738,23 @@ function generateLocalCode(): string {
             {/* Host button */}
             <button
               onClick={() => setShowHostModal(true)}
-              className="p-1.5 sm:p-2 rounded-full bg-purple-950/90 border border-purple-500/40 text-purple-300 hover:text-orange-400 hover:border-orange-500/50 transition-colors cursor-pointer"
+              className={`p-1.5 sm:p-2 rounded-full border transition-colors cursor-pointer ${
+                isSuperAdmin 
+                  ? 'bg-amber-600/30 border-amber-400 text-amber-300 shadow-md animate-pulse'
+                  : 'bg-purple-950/90 border-purple-500/40 text-purple-300 hover:text-orange-400 hover:border-orange-500/50'
+              }`}
               title="Panel del anfitrión (Nico)"
             >
               <Skull className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-orange-400" />
             </button>
 
-            {/* User code pill if logged in */}
-            {user && (
+            {/* Superadmin pill or User badge */}
+            {isSuperAdmin ? (
+              <div className="flex items-center gap-1.5 bg-gradient-to-r from-amber-600 to-orange-600 border border-amber-300/50 rounded-full py-1 px-2.5 text-[11px] font-black text-white shadow-md">
+                <Crown className="w-3 h-3 text-yellow-200" />
+                <span>NICO ADMIN</span>
+              </div>
+            ) : user ? (
               <div className="flex items-center gap-1 bg-purple-900/50 border border-purple-500/40 rounded-full py-1 px-2.5 text-[11px]">
                 <span className="text-purple-300 font-medium truncate max-w-[70px] sm:max-w-none">
                   {user.name}
@@ -721,10 +770,82 @@ function generateLocalCode(): string {
                   <LogOut className="w-3 h-3" />
                 </button>
               </div>
-            )}
+            ) : null}
           </div>
         </div>
       </header>
+
+      {/* Superadmin Quick Bar */}
+      {isSuperAdmin && (
+        <div className="bg-gradient-to-r from-amber-950/95 via-purple-950/95 to-orange-950/95 border-b border-orange-500/50 px-3 sm:px-6 py-2 shadow-2xl flex flex-wrap items-center justify-between gap-2 sticky top-[49px] sm:top-[53px] z-40 backdrop-blur-md">
+          <div className="flex items-center gap-2 text-xs sm:text-sm font-black text-amber-300">
+            <Crown className="w-4 h-4 text-amber-400 animate-bounce" />
+            <span>MODO SUPERADMIN (CASA DE NICO)</span>
+            <span className="text-[11px] font-normal text-purple-300 hidden md:inline">— Vista libre de observador y control total</span>
+          </div>
+
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <button
+              onClick={() => {
+                setActiveView(activeView === 'catwalk' ? 'home' : 'catwalk');
+                fetchCatwalk();
+              }}
+              className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                activeView === 'catwalk'
+                  ? 'bg-orange-600 border-orange-400 text-white shadow-md'
+                  : 'bg-purple-950/80 border-purple-500/40 text-purple-200 hover:text-white'
+              }`}
+            >
+              <span className="flex items-center gap-1.5">
+                <Eye className="w-3.5 h-3.5 text-orange-400" />
+                <span>{activeView === 'catwalk' ? 'Ver Inicio' : 'Ver Pasarela & Votos'}</span>
+              </span>
+            </button>
+
+            <button
+              onClick={() => setShowHostModal(true)}
+              className="px-3 py-1 rounded-xl text-xs font-bold bg-purple-900/80 hover:bg-purple-800 border border-purple-400/40 text-purple-100 cursor-pointer"
+            >
+              ⚙️ Panel Anfitrión
+            </button>
+
+            <button
+              onClick={() => setShowCeremonyModal(true)}
+              className="px-3 py-1 rounded-xl text-xs font-black bg-gradient-to-r from-amber-600 to-orange-500 text-white border border-amber-300/40 cursor-pointer shadow"
+            >
+              🎬 Gala Ganadores
+            </button>
+
+            <button
+              onClick={() => {
+                setIsSuperAdmin(false);
+                localStorage.removeItem('hlw_is_superadmin');
+                setActiveView('home');
+              }}
+              className="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-red-950/80 hover:bg-red-900 border border-red-500/40 text-red-300 hover:text-white cursor-pointer ml-1"
+              title="Salir del modo administrador"
+            >
+              Salir Admin
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* WhatsApp-like Live Notification Toast */}
+      {liveNotification && (
+        <div className="fixed top-16 sm:top-20 left-1/2 -translate-x-1/2 z-50 animate-bounce max-w-sm w-11/12 pointer-events-auto">
+          <div className="bg-gradient-to-r from-emerald-950 via-green-950 to-emerald-950 border-2 border-emerald-400 rounded-2xl p-3.5 shadow-2xl flex items-center gap-3 text-emerald-100 text-xs sm:text-sm font-black glow-box-green">
+            <Sparkles className="w-5 h-5 text-yellow-300 shrink-0 animate-spin" />
+            <span className="flex-1">{liveNotification.message}</span>
+            <button
+              onClick={() => setLiveNotification(null)}
+              className="text-emerald-300 hover:text-white p-1 text-sm cursor-pointer"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* MAIN CONTAINER */}
       <main className="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 space-y-6">
@@ -742,7 +863,7 @@ function generateLocalCode(): string {
         )}
 
         {/* ----------------- VIEW 1: REGISTRATION & CODE LOGIN (No user) ----------------- */}
-        {!user && (
+        {!user && !isSuperAdmin && (
           <div className="space-y-6 max-w-lg mx-auto">
             {/* Hero Card */}
             <div className="text-center space-y-3 pt-2">
@@ -994,8 +1115,103 @@ function generateLocalCode(): string {
           </div>
         )}
 
+        {/* ----------------- SUPERADMIN CONTROL HUB (Observer Mode for Nico) ----------------- */}
+        {isSuperAdmin && activeView === 'home' && (
+          <div className="space-y-6 max-w-xl mx-auto">
+            <div className="bg-gradient-to-r from-purple-950 via-[#190a2e] to-orange-950/90 border-2 border-orange-500/50 rounded-3xl p-6 text-center glow-box-orange space-y-3">
+              <div className="inline-flex items-center gap-2 bg-orange-600/30 text-orange-300 border border-orange-500/40 px-3.5 py-1 rounded-full text-xs font-black uppercase tracking-wider">
+                <Crown className="w-4 h-4 text-amber-400" />
+                <span>MODO SUPERADMIN — CASA DE NICO</span>
+              </div>
+              <h2 className="font-creepster text-3xl sm:text-4xl text-orange-400 text-glow-orange">
+                CENTRO DE CONTROL DEL ANFITRIÓN
+              </h2>
+              <p className="text-xs sm:text-sm text-purple-200 max-w-md mx-auto">
+                Vista de control exclusivo para Nico. Puedes explorar e interactuar con toda la pasarela y las votaciones <strong>sin necesidad de participar ni subir foto</strong> si no lo deseas.
+              </p>
+
+              {/* Quick Metrics */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2">
+                <div className="bg-purple-950/70 border border-purple-500/30 rounded-2xl p-2.5 text-center">
+                  <div className="text-[11px] text-purple-300">Registrados</div>
+                  <div className="text-xl font-black text-orange-400">{totalRegistered}</div>
+                </div>
+                <div className="bg-purple-950/70 border border-purple-500/30 rounded-2xl p-2.5 text-center">
+                  <div className="text-[11px] text-purple-300">Fotos Subidas</div>
+                  <div className="text-xl font-black text-emerald-400">{submittedCount}</div>
+                </div>
+                <div className="bg-purple-950/70 border border-purple-500/30 rounded-2xl p-2.5 text-center">
+                  <div className="text-[11px] text-purple-300">Pasarela</div>
+                  <div className={`text-xs font-black mt-1 ${isUnlocked ? 'text-emerald-400' : 'text-amber-400'}`}>
+                    {isUnlocked ? '🔓 ABIERTA' : '🔒 CERRADA'}
+                  </div>
+                </div>
+                <div className="bg-purple-950/70 border border-purple-500/30 rounded-2xl p-2.5 text-center">
+                  <div className="text-[11px] text-purple-300">Votaciones</div>
+                  <div className={`text-xs font-black mt-1 ${votingFinalized ? 'text-red-400' : 'text-purple-300'}`}>
+                    {votingFinalized ? 'FINALIZADA' : 'EN VIVO'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Primary Superadmin Actions */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveView('catwalk');
+                    fetchCatwalk(user?.code || 'ADMIN');
+                  }}
+                  className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-orange-600 via-orange-500 to-amber-600 text-white font-black text-sm py-4 px-5 rounded-2xl shadow-xl shadow-orange-600/30 border border-orange-400/40 cursor-pointer hover:scale-[1.02] active:scale-[0.98] transition-all"
+                >
+                  <Eye className="w-5 h-5 text-purple-950" />
+                  <span>🎭 Entrar a la Pasarela en Vivo</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowCeremonyModal(true)}
+                  className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 via-orange-500 to-purple-600 text-white font-black text-sm py-4 px-5 rounded-2xl shadow-xl shadow-amber-500/30 border border-amber-300/40 cursor-pointer hover:scale-[1.02] active:scale-[0.98] transition-all"
+                >
+                  <Trophy className="w-5 h-5 text-yellow-200" />
+                  <span>🎬 Probar Gala de Ganadores</span>
+                </button>
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowHostModal(true)}
+                  className="w-full flex items-center justify-center gap-2 bg-purple-900/60 hover:bg-purple-800/80 text-purple-200 font-bold text-xs sm:text-sm py-3 px-4 rounded-2xl border border-purple-500/30 cursor-pointer transition-all"
+                >
+                  <span>⚙️ Abrir Panel de Control (Invitados, Reset, Demo)</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Countdown card */}
+            <CountdownTimer targetDateStr={partyDate} onUnlocked={() => setIsUnlocked(true)} />
+
+            {/* Optional Participant view if Nico also registered a character */}
+            {user && character && (
+              <div className="space-y-3">
+                <div className="text-center">
+                  <span className="text-xs font-bold text-purple-300 uppercase tracking-wider">
+                    Tu personaje como participante (si juegas tú también):
+                  </span>
+                </div>
+                <CharacterCard
+                  character={character}
+                  isConfirmed={user.confirmed}
+                  allowHide={true}
+                />
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ----------------- VIEW 2: CHARACTER ASSIGNMENT (Deciding / Rerolls) ----------------- */}
-        {activeView === 'home' && user && !user.confirmed && character && (
+        {activeView === 'home' && user && !user.confirmed && character && !isSuperAdmin && (
           <div className="space-y-6 max-w-lg mx-auto">
             <div className="text-center space-y-1">
               <span className="text-xs font-bold text-orange-400 uppercase tracking-widest">
@@ -1018,22 +1234,48 @@ function generateLocalCode(): string {
           </div>
         )}
 
-        {/* ----------------- VIEW 3: SECRET LOCKDOWN (Confirmed, waiting until 22:00) ----------------- */}
-        {activeView === 'home' && user && user.confirmed && character && !isUnlocked && (
+        {/* ----------------- VIEW 3: SECRET LOCKDOWN & CHARACTER CARD (Confirmed user) ----------------- */}
+        {activeView === 'home' && user && user.confirmed && character && !isSuperAdmin && (
           <div className="space-y-6 max-w-xl mx-auto">
-            {/* Big Secrecy Warning */}
-            <div className="bg-gradient-to-r from-red-950/90 via-purple-950 to-orange-950/90 border-2 border-red-500/50 rounded-3xl p-5 sm:p-6 text-center glow-box-orange">
-              <div className="inline-flex items-center gap-2 bg-red-600/30 text-red-300 border border-red-500/40 px-3.5 py-1 rounded-full text-xs font-black uppercase tracking-wider mb-2">
-                <ShieldAlert className="w-4 h-4 text-orange-400 animate-pulse" />
-                <span>¡SECRETO MÁXIMO ACTIVADO!</span>
+            {/* Direct jump to Catwalk if unlocked, or countdown locked message */}
+            {isUnlocked ? (
+              <div className="bg-gradient-to-r from-emerald-950/80 via-purple-950 to-orange-950/80 border-2 border-emerald-500/50 rounded-3xl p-5 sm:p-6 text-center glow-box-orange space-y-3">
+                <div className="inline-flex items-center gap-2 bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 px-3.5 py-1 rounded-full text-xs font-black uppercase tracking-wider">
+                  <Eye className="w-4 h-4 text-emerald-400" />
+                  <span>¡LA PASARELA ESTÁ ABIERTA!</span>
+                </div>
+                <h2 className="font-creepster text-3xl sm:text-4xl text-orange-400 text-glow-orange">
+                  ¡HORA DEL DESFILE Y VOTACIONES!
+                </h2>
+                <p className="text-xs sm:text-sm text-purple-200">
+                  Sube tu foto con el disfraz, adivina quién es quién y vota a los mejores de la noche.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveView('catwalk');
+                    fetchCatwalk(user.code);
+                  }}
+                  className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-orange-600 via-orange-500 to-amber-600 text-white text-base font-extrabold py-4 px-6 rounded-2xl cursor-pointer shadow-xl shadow-orange-600/30 border border-orange-400/40 transition-transform hover:scale-[1.02] active:scale-[0.98]"
+                >
+                  <Eye className="w-5 h-5 text-purple-950" />
+                  <span>🎭 Entrar a La Pasarela y Votación en Vivo</span>
+                </button>
               </div>
-              <h2 className="font-creepster text-3xl sm:text-4xl text-orange-400 text-glow-orange tracking-wide">
-                APLICACIÓN BLOQUEADA HASTA LA FIESTA
-              </h2>
-              <p className="text-xs sm:text-sm text-purple-200 mt-2 leading-relaxed">
-                ¡Enhorabuena, {user.name}! Tu personaje ya está adjudicado para ti. Guarda bien el secreto: <span className="text-orange-400 font-bold">¡habrá premios para quien más disfraces adivine y para los mejores disfraces en la pasarela!</span>
-              </p>
-            </div>
+            ) : (
+              <div className="bg-gradient-to-r from-red-950/90 via-purple-950 to-orange-950/90 border-2 border-red-500/50 rounded-3xl p-5 sm:p-6 text-center glow-box-orange">
+                <div className="inline-flex items-center gap-2 bg-red-600/30 text-red-300 border border-red-500/40 px-3.5 py-1 rounded-full text-xs font-black uppercase tracking-wider mb-2">
+                  <ShieldAlert className="w-4 h-4 text-orange-400 animate-pulse" />
+                  <span>¡SECRETO MÁXIMO ACTIVADO!</span>
+                </div>
+                <h2 className="font-creepster text-3xl sm:text-4xl text-orange-400 text-glow-orange tracking-wide">
+                  APLICACIÓN BLOQUEADA HASTA LA FIESTA
+                </h2>
+                <p className="text-xs sm:text-sm text-purple-200 mt-2 leading-relaxed">
+                  ¡Enhorabuena, {user.name}! Tu personaje ya está adjudicado para ti. Guarda bien el secreto: <span className="text-orange-400 font-bold">¡habrá premios para quien más disfraces adivine y para los mejores disfraces en la pasarela!</span>
+                </p>
+              </div>
+            )}
 
             {/* Secret Code Card (Must save) */}
             <div className="bg-[#160d26] border-2 border-orange-500/40 rounded-3xl p-5 glow-box-orange">
@@ -1063,27 +1305,10 @@ function generateLocalCode(): string {
               </div>
             </div>
 
-            {/* Direct jump to Catwalk or locked state */}
-            {isUnlocked ? (
-              <button
-                onClick={() => {
-                  setActiveView('catwalk');
-                  fetchCatwalk(user.code);
-                }}
-                className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-orange-600 via-orange-500 to-amber-600 text-white text-base font-extrabold py-4 px-6 rounded-2xl cursor-pointer shadow-xl shadow-orange-600/30 border border-orange-400/40 transition-transform hover:scale-[1.02] active:scale-[0.98]"
-              >
-                <Eye className="w-5 h-5 text-purple-950" />
-                <span>🎭 Entrar a La Pasarela y Votación en Vivo</span>
-              </button>
-            ) : (
-              <div className="w-full flex items-center justify-center gap-2 bg-purple-950/70 border border-purple-500/30 text-purple-200 text-xs sm:text-sm font-semibold py-3.5 px-4 rounded-2xl shadow-md">
-                <Lock className="w-4 h-4 text-orange-400 shrink-0" />
-                <span>La Pasarela y votaciones se desbloquearán a las 22:00</span>
-              </div>
-            )}
-
             {/* Countdown until Catwalk Opens */}
-            <CountdownTimer targetDateStr={partyDate} onUnlocked={() => setIsUnlocked(true)} />
+            {!isUnlocked && (
+              <CountdownTimer targetDateStr={partyDate} onUnlocked={() => setIsUnlocked(true)} />
+            )}
 
             {/* Assigned Character Card with Hide/Reveal toggle */}
             <div className="space-y-2">
@@ -1106,11 +1331,11 @@ function generateLocalCode(): string {
         )}
 
         {/* ----------------- VIEW 4: LA PASARELA (Catwalk & Guessing & Live Voting) ----------------- */}
-        {isUnlocked && (activeView === 'catwalk' || (activeView === 'home' && user && user.confirmed && character)) && (
+        {activeView === 'catwalk' && (
           <CatwalkRunway
-            myCode={user?.code || ''}
-            myName={user?.name || ''}
-            myCharacterName={character?.name || ''}
+            myCode={isSuperAdmin ? (user?.code || 'ADMIN') : (user?.code || '')}
+            myName={isSuperAdmin ? (user?.name || 'Nico (Superadmin)') : (user?.name || '')}
+            myCharacterName={isSuperAdmin ? (character?.name || 'Anfitrión Observador') : (character?.name || '')}
             myCurrentPhotoUrl={user?.photoUrl}
             contestants={contestants}
             allSubmitted={allSubmitted}
@@ -1124,11 +1349,13 @@ function generateLocalCode(): string {
             onVote={handleVote}
             onGuess={handleGuess}
             onVoteCutre={handleVoteCutre}
-            onRefresh={() => fetchCatwalk(user?.code)}
+            onRefresh={() => fetchCatwalk(isSuperAdmin ? (user?.code || 'ADMIN') : user?.code)}
             onOpenCeremony={() => setShowCeremonyModal(true)}
             onGoToLogin={() => {
               setActiveView('home');
-              setShowCodeLogin(true);
+              if (!user && !isSuperAdmin) {
+                setShowCodeLogin(true);
+              }
             }}
             onSwitchUser={(code) => {
               fetchUserByCode(code);
@@ -1143,6 +1370,11 @@ function generateLocalCode(): string {
         onClose={() => setShowHostModal(false)}
         isUnlocked={isUnlocked}
         votingFinalized={votingFinalized}
+        isSuperAdmin={isSuperAdmin}
+        onSuperadminAuth={() => {
+          setIsSuperAdmin(true);
+          localStorage.setItem('hlw_is_superadmin', 'true');
+        }}
         onToggleCatwalk={async () => {
           const res = await safeFetchJson<{ isUnlocked: boolean }>('/api/host/toggle-catwalk', { method: 'POST' });
           if (res.data) {
