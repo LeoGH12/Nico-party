@@ -256,7 +256,7 @@ export default function App() {
   const fetchHostUsers = useCallback(async (showSpinner: boolean = false) => {
     if (showSpinner) setIsLoadingHostUsers(true);
     try {
-      const res = await safeFetchJson<{ users: any[] }>('/api/host/all-users');
+      const res = await safeFetchJson<{ users: any[] }>('/api/host-all-users');
       if (res.ok && res.data?.users && Array.isArray(res.data.users)) {
         setHostUsers(res.data.users);
       }
@@ -294,7 +294,7 @@ export default function App() {
     setHostUserToDelete(null);
     setHostStatusMsg(`Eliminando a ${name}...`);
     try {
-      const res = await safeFetchJson('/api/host/delete-user', {
+      const res = await safeFetchJson('/api/host-delete-user', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code })
@@ -315,7 +315,7 @@ export default function App() {
     setIsLoadingHostUsers(true);
     setHostStatusMsg('Cargando 5 amigos de prueba...');
     try {
-      await safeFetchJson('/api/host/seed-demo', { method: 'POST' });
+      await safeFetchJson('/api/host-seed-demo', { method: 'POST' });
       setIsUnlocked(true);
       await fetchHostUsers();
       await fetchCatwalk('ADMIN');
@@ -331,7 +331,7 @@ export default function App() {
     setHostShowResetConfirm(false);
     setHostStatusMsg('Reiniciando base de datos...');
     try {
-      await safeFetchJson('/api/host/reset', { method: 'POST' });
+      await safeFetchJson('/api/host-reset', { method: 'POST' });
       setIsUnlocked(false);
       setVotingFinalized(false);
       await fetchHostUsers();
@@ -344,7 +344,7 @@ export default function App() {
 
   const handleHostToggleCatwalk = async () => {
     try {
-      const res = await safeFetchJson<{ isUnlocked: boolean }>('/api/host/toggle-catwalk', { method: 'POST' });
+      const res = await safeFetchJson<{ isUnlocked: boolean }>('/api/host-toggle-catwalk', { method: 'POST' });
       if (res.data) {
         setIsUnlocked(res.data.isUnlocked);
         setHostStatusMsg(res.data.isUnlocked ? 'Pasarela desbloqueada' : 'Pasarela bloqueada hasta las 22:00');
@@ -357,7 +357,7 @@ export default function App() {
 
   const handleHostToggleFinalize = async () => {
     try {
-      const res = await safeFetchJson<{ votingFinalized: boolean }>('/api/host/toggle-finalize', { method: 'POST' });
+      const res = await safeFetchJson<{ votingFinalized: boolean }>('/api/host-toggle-finalize', { method: 'POST' });
       if (res.data) {
         setVotingFinalized(res.data.votingFinalized);
         setHostStatusMsg(res.data.votingFinalized ? 'Votación cerrada y podio fijado' : 'Votación reabierta');

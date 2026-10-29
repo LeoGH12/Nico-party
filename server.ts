@@ -913,8 +913,8 @@ app.get('/api/catwalk', (req: Request, res: Response) => {
   }
 });
 
-// Host management routes
-app.post('/api/host/toggle-catwalk', (_req: Request, res: Response) => {
+// Host management routes (Supports both nested /api/host/* and flat /api/host-* for Vercel)
+app.post(['/api/host/toggle-catwalk', '/api/host-toggle-catwalk'], (_req: Request, res: Response) => {
   try {
     state.forceUnlockCatwalk = !state.forceUnlockCatwalk;
     saveState(state);
@@ -928,7 +928,7 @@ app.post('/api/host/toggle-catwalk', (_req: Request, res: Response) => {
   }
 });
 
-app.post('/api/host/toggle-finalize', (_req: Request, res: Response) => {
+app.post(['/api/host/toggle-finalize', '/api/host-toggle-finalize'], (_req: Request, res: Response) => {
   try {
     state.votingFinalized = !state.votingFinalized;
     saveState(state);
@@ -941,7 +941,7 @@ app.post('/api/host/toggle-finalize', (_req: Request, res: Response) => {
   }
 });
 
-app.get('/api/host/all-users', (_req: Request, res: Response) => {
+app.get(['/api/host/all-users', '/api/host-all-users'], (_req: Request, res: Response) => {
   try {
     const all = getAllCharacters();
     const list = Object.values(state.users).map(u => ({
@@ -963,7 +963,7 @@ app.get('/api/host/all-users', (_req: Request, res: Response) => {
 });
 
 // Seed demo participants
-app.post('/api/host/seed-demo', (_req: Request, res: Response) => {
+app.post(['/api/host/seed-demo', '/api/host-seed-demo'], (_req: Request, res: Response) => {
   try {
     const demoUsers: Array<{ name: string; characterId: string; photoUrl: string }> = [
       {
@@ -1072,7 +1072,7 @@ app.post('/api/host/seed-demo', (_req: Request, res: Response) => {
 });
 
 // Delete single participant by Host
-app.post('/api/host/delete-user', (req: Request, res: Response) => {
+app.post(['/api/host/delete-user', '/api/host-delete-user'], (req: Request, res: Response) => {
   try {
     const { code } = req.body;
     if (!code || typeof code !== 'string') {
@@ -1126,7 +1126,7 @@ app.post('/api/host/delete-user', (req: Request, res: Response) => {
 });
 
 // Reset database completely
-app.post('/api/host/reset', (_req: Request, res: Response) => {
+app.post(['/api/host/reset', '/api/host-reset'], (_req: Request, res: Response) => {
   try {
     state = {
       partyDate: '2026-10-30T22:00:00',
