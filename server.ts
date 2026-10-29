@@ -887,8 +887,10 @@ app.get('/api/catwalk', (req: Request, res: Response) => {
       }
     }
 
-    const totalRegistered = Object.values(state.users).filter(u => u.confirmed).length;
-    const allSubmitted = totalRegistered > 0 && contestants.length >= totalRegistered;
+    const allUsersList = Object.values(state.users);
+    const totalRegistered = allUsersList.length;
+    const confirmedCount = allUsersList.filter(u => u && u.confirmed).length;
+    const allSubmitted = confirmedCount > 0 && contestants.length >= confirmedCount;
     const myScore = Object.values(myGuesses).filter(g => g.isCorrect).length;
 
     res.json({

@@ -252,35 +252,41 @@ export default function App() {
     }
   }, []);
 
-  // Periodic polling for real-time live synchronization (smooth 2.5s cadence)
-  useEffect(() => {
-    const codeToPass = isSuperAdmin ? undefined : user?.code;
-    fetchCatwalk(codeToPass);
-    const interval = setInterval(() => {
-      fetchCatwalk(codeToPass);
-    }, 2500);
-    return () => clearInterval(interval);
-  }, [fetchCatwalk, isSuperAdmin, user?.code]);
-
   // Superadmin host user fetcher
-  const fetchHostUsers = useCallback(async () => {
-    setIsLoadingHostUsers(true);
+  const fetchHostUsers = useCallback(async (showSpinner: boolean = false) => {
+    if (showSpinner) setIsLoadingHostUsers(true);
     try {
       const res = await safeFetchJson<{ users: any[] }>('/api/host/all-users');
-      if (res.ok && res.data?.users) {
+      if (res.ok && res.data?.users && Array.isArray(res.data.users)) {
         setHostUsers(res.data.users);
       }
     } catch (e) {
       console.error('Error fetching host users:', e);
     } finally {
-      setIsLoadingHostUsers(false);
+      if (showSpinner) setIsLoadingHostUsers(false);
     }
   }, []);
 
-  // Fetch host users when entering admin view
+  // Periodic polling for real-time live synchronization (smooth 2.5s cadence)
+  useEffect(() => {
+    const codeToPass = isSuperAdmin ? undefined : user?.code;
+    fetchCatwalk(codeToPass);
+    if (isSuperAdmin) {
+      fetchHostUsers(false);
+    }
+    const interval = setInterval(() => {
+      fetchCatwalk(codeToPass);
+      if (isSuperAdmin) {
+        fetchHostUsers(false);
+      }
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [fetchCatwalk, fetchHostUsers, isSuperAdmin, user?.code]);
+
+  // Fetch host users immediately when entering admin view with spinner
   useEffect(() => {
     if (isSuperAdmin && activeView === 'admin') {
-      fetchHostUsers();
+      fetchHostUsers(true);
     }
   }, [isSuperAdmin, activeView, fetchHostUsers]);
 
@@ -1491,7 +1497,7 @@ export default function App() {
 
                 <button
                   type="button"
-                  onClick={fetchHostUsers}
+                  onClick={() => fetchHostUsers(true)}
                   disabled={isLoadingHostUsers}
                   className="inline-flex items-center gap-1 text-[11px] font-bold text-orange-400 hover:text-orange-300 bg-purple-950/80 border border-purple-500/30 px-3 py-1.5 rounded-xl cursor-pointer transition-colors"
                 >
