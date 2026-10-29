@@ -253,7 +253,7 @@ export default function App() {
   }, []);
 
   // Superadmin host user fetcher
-  const fetchHostUsers = useCallback(async (showSpinner: boolean = false) => {
+  const fetchHostUsers = useCallback(async (showSpinner: boolean = true) => {
     if (showSpinner) setIsLoadingHostUsers(true);
     try {
       const res = await safeFetchJson<{ users: any[] }>('/api/host-all-users');
@@ -271,17 +271,11 @@ export default function App() {
   useEffect(() => {
     const codeToPass = isSuperAdmin ? undefined : user?.code;
     fetchCatwalk(codeToPass);
-    if (isSuperAdmin) {
-      fetchHostUsers(false);
-    }
     const interval = setInterval(() => {
       fetchCatwalk(codeToPass);
-      if (isSuperAdmin) {
-        fetchHostUsers(false);
-      }
     }, 2500);
     return () => clearInterval(interval);
-  }, [fetchCatwalk, fetchHostUsers, isSuperAdmin, user?.code]);
+  }, [fetchCatwalk, isSuperAdmin, user?.code]);
 
   // Fetch host users immediately when entering admin view with spinner
   useEffect(() => {
