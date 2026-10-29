@@ -22,7 +22,12 @@ import {
   Eye,
   Film,
   Crown,
-  Trophy
+  Trophy,
+  Unlock,
+  Users,
+  RotateCcw,
+  Trash2,
+  ShieldCheck
 } from 'lucide-react';
 import { AudioPlayer } from './components/AudioPlayer.tsx';
 import { CountdownTimer } from './components/CountdownTimer.tsx';
@@ -82,9 +87,28 @@ export default function App() {
   const prevContestantPhotosRef = useRef<Map<string, string>>(new Map());
   const isInitialPollRef = useRef<boolean>(true);
   
-  // Navigation active view ('home' for registration/lockdown, 'catwalk' for live runway & voting)
-  const [activeView, setActiveView] = useState<'home' | 'catwalk'>('home');
+  // Navigation active view ('home' for registration/lockdown, 'catwalk' for live runway & voting, 'admin' for full superadmin dashboard)
+  const [activeView, setActiveView] = useState<'home' | 'catwalk' | 'admin'>(() => {
+    return localStorage.getItem('hlw_is_superadmin') === 'true' ? 'admin' : 'home';
+  });
   const [showCeremonyModal, setShowCeremonyModal] = useState<boolean>(false);
+
+  // Superadmin Host state
+  const [hostUsers, setHostUsers] = useState<Array<{
+    code: string;
+    name: string;
+    characterId: string;
+    confirmed: boolean;
+    rollsLeft: number;
+    photoUrl?: string;
+    photoTimestamp?: number;
+    registeredAt: number;
+    character?: { name: string; source: string };
+  }>>([]);
+  const [isLoadingHostUsers, setIsLoadingHostUsers] = useState<boolean>(false);
+  const [hostStatusMsg, setHostStatusMsg] = useState<string | null>(null);
+  const [hostUserToDelete, setHostUserToDelete] = useState<{ code: string; name: string } | null>(null);
+  const [hostShowResetConfirm, setHostShowResetConfirm] = useState<boolean>(false);
 
   // Registration flow inputs
   const [registerMode, setRegisterMode] = useState<'random' | 'custom'>('random');
@@ -236,7 +260,107 @@ export default function App() {
       fetchCatwalk(codeToPass);
     }, 2500);
     return () => clearInterval(interval);
-  }, [user?.code, isSuperAdmin, fetchCatwalk]);
+  }, [fetchCatwalk, isSuperAdmin, user?.code]);
+
+  // Superadmin host user fetcher
+  const fetchHostUsers = useCallback(async () => {
+    setIsLoadingHostUsers(true);
+    try {
+      const res = await safeFetchJson<{ users: any[] }>('/api/host/all-users');
+      if (res.ok && res.data?.users) {
+        setHostUsers(res.data.users);
+      }
+    } catch (e) {
+      console.error('Error fetching host users:', e);
+    } finally {
+      setIsLoadingHostUsers(false);
+    }
+  }, []);
+
+  // Fetch host users when entering admin view
+  useEffect(() => {
+    if (isSuperAdmin && activeView === 'admin') {
+      fetchHostUsers();
+    }
+  }, [isSuperAdmin, activeView, fetchHostUsers]);
+
+  const handleHostDeleteUser = async (code: string, name: string) => {
+    setHostUserToDelete(null);
+    setHostStatusMsg(`Eliminando a ${name}...`);
+    try {
+      const res = await safeFetchJson('/api/host/delete-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code })
+      });
+      if (res.ok) {
+        setHostStatusMsg(`✅ ${name} (${code}) eliminado con éxito`);
+        await fetchHostUsers();
+        await fetchCatwalk('ADMIN');
+      } else {
+        setHostStatusMsg(res.error || 'Error al eliminar');
+      }
+    } catch {
+      setHostStatusMsg('Error al conectar con el servidor');
+    }
+  };
+
+  const handleHostSeed = async () => {
+    setIsLoadingHostUsers(true);
+    setHostStatusMsg('Cargando 5 amigos de prueba...');
+    try {
+      await safeFetchJson('/api/host/seed-demo', { method: 'POST' });
+      setIsUnlocked(true);
+      await fetchHostUsers();
+      await fetchCatwalk('ADMIN');
+      setHostStatusMsg('✅ ¡5 participantes de prueba cargados con fotos y votos!');
+    } catch {
+      setHostStatusMsg('Error al cargar pruebas');
+    } finally {
+      setIsLoadingHostUsers(false);
+    }
+  };
+
+  const handleHostReset = async () => {
+    setHostShowResetConfirm(false);
+    setHostStatusMsg('Reiniciando base de datos...');
+    try {
+      await safeFetchJson('/api/host/reset', { method: 'POST' });
+      setIsUnlocked(false);
+      setVotingFinalized(false);
+      await fetchHostUsers();
+      await fetchCatwalk('ADMIN');
+      setHostStatusMsg('✅ Base de datos reiniciada por completo');
+    } catch {
+      setHostStatusMsg('Error al reiniciar base de datos');
+    }
+  };
+
+  const handleHostToggleCatwalk = async () => {
+    try {
+      const res = await safeFetchJson<{ isUnlocked: boolean }>('/api/host/toggle-catwalk', { method: 'POST' });
+      if (res.data) {
+        setIsUnlocked(res.data.isUnlocked);
+        setHostStatusMsg(res.data.isUnlocked ? 'Pasarela desbloqueada' : 'Pasarela bloqueada hasta las 22:00');
+      }
+      await fetchCatwalk('ADMIN');
+    } catch {
+      setHostStatusMsg('Error al alternar pasarela');
+    }
+  };
+
+  const handleHostToggleFinalize = async () => {
+    try {
+      const res = await safeFetchJson<{ votingFinalized: boolean }>('/api/host/toggle-finalize', { method: 'POST' });
+      if (res.data) {
+        setVotingFinalized(res.data.votingFinalized);
+        setHostStatusMsg(res.data.votingFinalized ? 'Votación cerrada y podio fijado' : 'Votación reabierta');
+      }
+      await fetchCatwalk('ADMIN');
+    } catch {
+      setHostStatusMsg('Error al alternar cierre de votación');
+    }
+  };
 
   const fetchUserByCode = async (code: string) => {
     setIsLoggingIn(true);
@@ -678,23 +802,43 @@ export default function App() {
             </div>
           </button>
 
-          {/* Catwalk / Live Voting nav button or locked badge */}
+          {/* Catwalk / Admin nav buttons */}
           {isSuperAdmin ? (
-            <button
-              onClick={() => {
-                setActiveView(activeView === 'catwalk' ? 'home' : 'catwalk');
-                fetchCatwalk();
-              }}
-              className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer border shrink-0 ${
-                activeView === 'catwalk'
-                  ? 'bg-orange-600 border-orange-400 text-white shadow-md shadow-orange-600/40'
-                  : 'bg-purple-950/80 border-purple-500/40 text-purple-200 hover:text-orange-400'
-              }`}
-              title="Superadmin: Ver pasarela o inicio"
-            >
-              <Eye className="w-3.5 h-3.5 text-orange-400" />
-              <span>{activeView === 'catwalk' ? 'Ver Inicio' : 'Ver Pasarela'}</span>
-            </button>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveView('admin');
+                  fetchHostUsers();
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-black transition-all cursor-pointer border ${
+                  activeView === 'admin'
+                    ? 'bg-amber-600 border-amber-300 text-white shadow-md shadow-amber-600/40'
+                    : 'bg-purple-950/80 border-purple-500/40 text-amber-300 hover:text-white'
+                }`}
+                title="Ir al panel de control de anfitrión"
+              >
+                <Crown className="w-3.5 h-3.5 text-amber-300" />
+                <span>Panel Admin</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveView('catwalk');
+                  fetchCatwalk('ADMIN');
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all cursor-pointer border ${
+                  activeView === 'catwalk'
+                    ? 'bg-orange-600 border-orange-400 text-white shadow-md shadow-orange-600/40'
+                    : 'bg-purple-950/80 border-purple-500/40 text-purple-200 hover:text-orange-400'
+                }`}
+                title="Ver pasarela y votaciones en vivo"
+              >
+                <Eye className="w-3.5 h-3.5 text-orange-400" />
+                <span>Pasarela</span>
+              </button>
+            </div>
           ) : !isUnlocked ? (
             <div 
               className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-full text-xs font-bold bg-purple-950/80 border border-purple-500/30 text-purple-300 select-none shrink-0"
@@ -737,7 +881,15 @@ export default function App() {
 
             {/* Host button */}
             <button
-              onClick={() => setShowHostModal(true)}
+              type="button"
+              onClick={() => {
+                if (isSuperAdmin) {
+                  setActiveView('admin');
+                  fetchHostUsers();
+                } else {
+                  setShowHostModal(true);
+                }
+              }}
               className={`p-1.5 sm:p-2 rounded-full border transition-colors cursor-pointer ${
                 isSuperAdmin 
                   ? 'bg-amber-600/30 border-amber-400 text-amber-300 shadow-md animate-pulse'
@@ -781,49 +933,76 @@ export default function App() {
           <div className="flex items-center gap-2 text-xs sm:text-sm font-black text-amber-300">
             <Crown className="w-4 h-4 text-amber-400 animate-bounce" />
             <span>MODO SUPERADMIN (CASA DE NICO)</span>
-            <span className="text-[11px] font-normal text-purple-300 hidden md:inline">— Vista libre de observador y control total</span>
+            <span className="text-[11px] font-normal text-purple-300 hidden md:inline">— Control central de la fiesta</span>
           </div>
 
           <div className="flex items-center gap-1.5 flex-wrap">
             <button
+              type="button"
               onClick={() => {
-                setActiveView(activeView === 'catwalk' ? 'home' : 'catwalk');
-                fetchCatwalk();
+                setActiveView('admin');
+                fetchHostUsers();
               }}
-              className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
+                activeView === 'admin'
+                  ? 'bg-amber-600 border-amber-300 text-white shadow-md'
+                  : 'bg-purple-950/80 border-purple-500/40 text-purple-200 hover:text-white'
+              }`}
+            >
+              <span className="flex items-center gap-1">
+                <Crown className="w-3.5 h-3.5 text-amber-300" />
+                <span>Vista Admin</span>
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setActiveView('catwalk');
+                fetchCatwalk('ADMIN');
+              }}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer border ${
                 activeView === 'catwalk'
                   ? 'bg-orange-600 border-orange-400 text-white shadow-md'
                   : 'bg-purple-950/80 border-purple-500/40 text-purple-200 hover:text-white'
               }`}
             >
-              <span className="flex items-center gap-1.5">
+              <span className="flex items-center gap-1">
                 <Eye className="w-3.5 h-3.5 text-orange-400" />
-                <span>{activeView === 'catwalk' ? 'Ver Inicio' : 'Ver Pasarela & Votos'}</span>
+                <span>Ver Pasarela & Votos</span>
               </span>
             </button>
 
             <button
-              onClick={() => setShowHostModal(true)}
-              className="px-3 py-1 rounded-xl text-xs font-bold bg-purple-900/80 hover:bg-purple-800 border border-purple-400/40 text-purple-100 cursor-pointer"
-            >
-              ⚙️ Panel Anfitrión
-            </button>
-
-            <button
+              type="button"
               onClick={() => setShowCeremonyModal(true)}
-              className="px-3 py-1 rounded-xl text-xs font-black bg-gradient-to-r from-amber-600 to-orange-500 text-white border border-amber-300/40 cursor-pointer shadow"
+              className="px-3 py-1.5 rounded-xl text-xs font-black bg-gradient-to-r from-amber-600 to-orange-500 text-white border border-amber-300/40 cursor-pointer shadow hover:scale-[1.02] active:scale-[0.98]"
             >
               🎬 Gala Ganadores
             </button>
 
             <button
+              type="button"
+              onClick={() => setActiveView('home')}
+              className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition-colors cursor-pointer ${
+                activeView === 'home'
+                  ? 'bg-purple-700 text-white border-purple-400'
+                  : 'bg-purple-950/80 text-purple-300 border-purple-500/30'
+              }`}
+              title="Ver cómo lo ve un invitado normal"
+            >
+              Vista Invitado
+            </button>
+
+            <button
+              type="button"
               onClick={() => {
                 setIsSuperAdmin(false);
                 localStorage.removeItem('hlw_is_superadmin');
                 setShowHostModal(false);
                 setActiveView('home');
               }}
-              className="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-red-950/80 hover:bg-red-900 border border-red-500/40 text-red-300 hover:text-white cursor-pointer ml-1"
+              className="px-2.5 py-1.5 rounded-xl text-[11px] font-bold bg-red-950/80 hover:bg-red-900 border border-red-500/40 text-red-300 hover:text-white cursor-pointer ml-1"
               title="Salir del modo administrador"
             >
               Salir Admin
@@ -1116,98 +1295,345 @@ export default function App() {
           </div>
         )}
 
-        {/* ----------------- SUPERADMIN CONTROL HUB (Observer Mode for Nico) ----------------- */}
-        {isSuperAdmin && activeView === 'home' && (
-          <div className="space-y-6 max-w-xl mx-auto">
-            <div className="bg-gradient-to-r from-purple-950 via-[#190a2e] to-orange-950/90 border-2 border-orange-500/50 rounded-3xl p-6 text-center glow-box-orange space-y-3">
+        {/* ----------------- SUPERADMIN DASHBOARD VIEW ('admin') ----------------- */}
+        {isSuperAdmin && activeView === 'admin' && (
+          <div className="space-y-6 max-w-2xl mx-auto pb-10">
+            {/* Header Card */}
+            <div className="bg-gradient-to-r from-purple-950 via-[#190a2e] to-orange-950 border-2 border-orange-500/50 rounded-3xl p-6 text-center glow-box-orange space-y-4">
               <div className="inline-flex items-center gap-2 bg-orange-600/30 text-orange-300 border border-orange-500/40 px-3.5 py-1 rounded-full text-xs font-black uppercase tracking-wider">
                 <Crown className="w-4 h-4 text-amber-400" />
-                <span>MODO SUPERADMIN — CASA DE NICO</span>
+                <span>VISTA SUPERADMIN — CASA DE NICO</span>
               </div>
               <h2 className="font-creepster text-3xl sm:text-4xl text-orange-400 text-glow-orange">
-                CENTRO DE CONTROL DEL ANFITRIÓN
+                PANEL DE CONTROL DEL ANFITRIÓN
               </h2>
-              <p className="text-xs sm:text-sm text-purple-200 max-w-md mx-auto">
-                Vista de control exclusivo para Nico. Puedes explorar e interactuar con toda la pasarela y las votaciones <strong>sin necesidad de participar ni subir foto</strong> si no lo deseas.
+              <p className="text-xs sm:text-sm text-purple-200 max-w-lg mx-auto">
+                Control central de la fiesta. Visualiza a todos los amigos registrados, modera los disfraces y prueba la pasarela y las votaciones en tiempo real sin interferir en los resultados.
               </p>
 
-              {/* Quick Metrics */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2">
-                <div className="bg-purple-950/70 border border-purple-500/30 rounded-2xl p-2.5 text-center">
-                  <div className="text-[11px] text-purple-300">Registrados</div>
-                  <div className="text-xl font-black text-orange-400">{totalRegistered}</div>
-                </div>
-                <div className="bg-purple-950/70 border border-purple-500/30 rounded-2xl p-2.5 text-center">
-                  <div className="text-[11px] text-purple-300">Fotos Subidas</div>
-                  <div className="text-xl font-black text-emerald-400">{submittedCount}</div>
-                </div>
-                <div className="bg-purple-950/70 border border-purple-500/30 rounded-2xl p-2.5 text-center">
-                  <div className="text-[11px] text-purple-300">Pasarela</div>
-                  <div className={`text-xs font-black mt-1 ${isUnlocked ? 'text-emerald-400' : 'text-amber-400'}`}>
-                    {isUnlocked ? '🔓 ABIERTA' : '🔒 CERRADA'}
+              {/* Status / Alert Banner */}
+              {hostStatusMsg && (
+                <div className="p-3 bg-purple-950/90 border border-orange-500/50 rounded-2xl text-xs text-orange-300 flex flex-col sm:flex-row items-center justify-between gap-2 shadow-lg">
+                  <span className="font-semibold">{hostStatusMsg}</span>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveView('catwalk');
+                        fetchCatwalk('ADMIN');
+                      }}
+                      className="px-3 py-1 bg-orange-600 hover:bg-orange-500 text-white rounded-xl text-xs font-bold cursor-pointer transition-all active:scale-95"
+                    >
+                      🎭 Ver en Pasarela
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setHostStatusMsg(null)}
+                      className="text-purple-400 hover:text-white text-xs px-1.5"
+                    >
+                      ✕
+                    </button>
                   </div>
                 </div>
-                <div className="bg-purple-950/70 border border-purple-500/30 rounded-2xl p-2.5 text-center">
-                  <div className="text-[11px] text-purple-300">Votaciones</div>
-                  <div className={`text-xs font-black mt-1 ${votingFinalized ? 'text-red-400' : 'text-purple-300'}`}>
-                    {votingFinalized ? 'FINALIZADA' : 'EN VIVO'}
+              )}
+
+              {/* Quick Metrics */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 pt-1">
+                <div className="bg-purple-950/80 border border-purple-500/30 rounded-2xl p-3 text-center">
+                  <div className="text-[11px] text-purple-300 font-medium">Registrados</div>
+                  <div className="text-2xl font-black text-orange-400">{hostUsers.length || totalRegistered}</div>
+                </div>
+                <div className="bg-purple-950/80 border border-purple-500/30 rounded-2xl p-3 text-center">
+                  <div className="text-[11px] text-purple-300 font-medium">Fotos en Pasarela</div>
+                  <div className="text-2xl font-black text-emerald-400">{submittedCount}</div>
+                </div>
+                <div className="bg-purple-950/80 border border-purple-500/30 rounded-2xl p-3 text-center">
+                  <div className="text-[11px] text-purple-300 font-medium">Pasarela</div>
+                  <div className={`text-xs font-black mt-1 ${isUnlocked ? 'text-emerald-400' : 'text-amber-400'}`}>
+                    {isUnlocked ? '🔓 ABIERTA' : '🔒 BLOQUEADA'}
+                  </div>
+                </div>
+                <div className="bg-purple-950/80 border border-purple-500/30 rounded-2xl p-3 text-center">
+                  <div className="text-[11px] text-purple-300 font-medium">Votación</div>
+                  <div className={`text-xs font-black mt-1 ${votingFinalized ? 'text-red-400' : 'text-emerald-400'}`}>
+                    {votingFinalized ? '🏆 FINALIZADA' : '⚡ EN VIVO'}
                   </div>
                 </div>
               </div>
 
-              {/* Primary Superadmin Actions */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-3">
+              {/* Primary Direct Navigation */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => {
                     setActiveView('catwalk');
-                    fetchCatwalk(user?.code || 'ADMIN');
+                    fetchCatwalk('ADMIN');
                   }}
-                  className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-orange-600 via-orange-500 to-amber-600 text-white font-black text-sm py-4 px-5 rounded-2xl shadow-xl shadow-orange-600/30 border border-orange-400/40 cursor-pointer hover:scale-[1.02] active:scale-[0.98] transition-all"
+                  className="flex items-center justify-center gap-2.5 bg-gradient-to-r from-orange-600 via-orange-500 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-extrabold text-sm sm:text-base py-4 px-5 rounded-2xl shadow-xl shadow-orange-600/30 border border-orange-400/40 cursor-pointer transition-transform hover:scale-[1.02] active:scale-[0.98]"
                 >
                   <Eye className="w-5 h-5 text-purple-950" />
-                  <span>🎭 Entrar a la Pasarela en Vivo</span>
+                  <span>🎭 Ver Pasarela & Votos en Directo</span>
                 </button>
 
                 <button
                   type="button"
                   onClick={() => setShowCeremonyModal(true)}
-                  className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-amber-500 via-orange-500 to-purple-600 text-white font-black text-sm py-4 px-5 rounded-2xl shadow-xl shadow-amber-500/30 border border-amber-300/40 cursor-pointer hover:scale-[1.02] active:scale-[0.98] transition-all"
+                  className="flex items-center justify-center gap-2.5 bg-gradient-to-r from-amber-500 via-orange-500 to-purple-600 text-white font-extrabold text-sm sm:text-base py-4 px-5 rounded-2xl shadow-xl shadow-amber-500/30 border border-amber-300/40 cursor-pointer transition-transform hover:scale-[1.02] active:scale-[0.98]"
                 >
                   <Trophy className="w-5 h-5 text-yellow-200" />
-                  <span>🎬 Probar Gala de Ganadores</span>
-                </button>
-              </div>
-
-              <div className="pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowHostModal(true)}
-                  className="w-full flex items-center justify-center gap-2 bg-purple-900/60 hover:bg-purple-800/80 text-purple-200 font-bold text-xs sm:text-sm py-3 px-4 rounded-2xl border border-purple-500/30 cursor-pointer transition-all"
-                >
-                  <span>⚙️ Abrir Panel de Control (Invitados, Reset, Demo)</span>
+                  <span>🎬 Proyectar Gala de Ganadores</span>
                 </button>
               </div>
             </div>
 
-            {/* Countdown card */}
-            <CountdownTimer targetDateStr={partyDate} onUnlocked={() => setIsUnlocked(true)} />
+            {/* Quick Actions Panel */}
+            <div className="bg-[#140b24] border-2 border-purple-500/40 rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
+              <h3 className="text-xs font-bold text-purple-300 uppercase tracking-wider flex items-center gap-2">
+                <ShieldCheck className="w-4 h-4 text-orange-400" />
+                <span>Acciones Rápidas del Anfitrión</span>
+              </h3>
 
-            {/* Optional Participant view if Nico also registered a character */}
-            {user && character && (
-              <div className="space-y-3">
-                <div className="text-center">
-                  <span className="text-xs font-bold text-purple-300 uppercase tracking-wider">
-                    Tu personaje como participante (si juegas tú también):
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Catwalk Unlock Toggle */}
+                <button
+                  type="button"
+                  onClick={handleHostToggleCatwalk}
+                  className={`flex items-center justify-between p-3.5 rounded-2xl border text-xs font-bold transition-all cursor-pointer ${
+                    isUnlocked
+                      ? 'bg-emerald-950/60 border-emerald-500/50 text-emerald-300'
+                      : 'bg-purple-950/60 border-purple-500/30 text-purple-200'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    {isUnlocked ? <Unlock className="w-4 h-4 text-emerald-400" /> : <Lock className="w-4 h-4 text-purple-400" />}
+                    <span>{isUnlocked ? 'Pasarela Abierta' : 'Pasarela Bloqueada (22:00)'}</span>
                   </span>
-                </div>
-                <CharacterCard
-                  character={character}
-                  isConfirmed={user.confirmed}
-                  allowHide={true}
-                />
+                  <span className="text-[10px] underline">{isUnlocked ? 'Bloquear' : 'Desbloquear Ya'}</span>
+                </button>
+
+                {/* Voting Finalize Toggle */}
+                <button
+                  type="button"
+                  onClick={handleHostToggleFinalize}
+                  className={`flex items-center justify-between p-3.5 rounded-2xl border text-xs font-bold transition-all cursor-pointer ${
+                    votingFinalized
+                      ? 'bg-amber-950/60 border-amber-500/50 text-amber-300'
+                      : 'bg-purple-950/60 border-purple-500/30 text-purple-200'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-amber-400" />
+                    <span>{votingFinalized ? 'Podio Cerrado' : 'Votación En Curso'}</span>
+                  </span>
+                  <span className="text-[10px] underline">{votingFinalized ? 'Reabrir' : 'Cerrar Podio'}</span>
+                </button>
               </div>
-            )}
+
+              {/* Seed & Reset Buttons */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                <button
+                  type="button"
+                  onClick={handleHostSeed}
+                  disabled={isLoadingHostUsers}
+                  className="sm:col-span-2 flex items-center justify-center gap-2 bg-purple-900/80 hover:bg-purple-800 border border-purple-500/40 text-purple-100 py-3 px-4 rounded-2xl text-xs font-bold cursor-pointer transition-all active:scale-95 shadow"
+                >
+                  <Sparkles className="w-4 h-4 text-orange-400" />
+                  <span>{isLoadingHostUsers ? 'Cargando...' : 'Cargar 5 Amigos de Prueba con Fotos y Votos'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setHostShowResetConfirm(true)}
+                  className="flex items-center justify-center gap-1.5 bg-red-950/60 hover:bg-red-900/70 border border-red-500/40 text-red-300 py-3 px-4 rounded-2xl text-xs font-bold cursor-pointer transition-all active:scale-95 shadow"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Limpiar Fiesta</span>
+                </button>
+              </div>
+
+              {/* Inline Reset Confirmation */}
+              {hostShowResetConfirm && (
+                <div className="p-3.5 bg-red-950/95 border-2 border-red-500 rounded-2xl text-xs space-y-2.5 shadow-2xl animate-in fade-in zoom-in-95">
+                  <div className="font-bold text-white flex items-center gap-1.5">
+                    <RotateCcw className="w-4 h-4 text-red-400" />
+                    <span>¿Reiniciar fiesta y vaciar la lista por completo?</span>
+                  </div>
+                  <p className="text-red-200 text-[11px]">
+                    Se borrarán todos los participantes registrados, votos, fotos y la pasarela se volverá a bloquear hasta las 22:00.
+                  </p>
+                  <div className="flex gap-2 justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setHostShowResetConfirm(false)}
+                      className="px-3.5 py-1.5 bg-purple-900/60 hover:bg-purple-800 text-purple-200 rounded-xl text-xs font-semibold cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleHostReset}
+                      className="px-4 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-extrabold shadow cursor-pointer"
+                    >
+                      Sí, Vaciar Todo
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Registered Guests Management List */}
+            <div className="bg-[#140b24] border-2 border-purple-500/40 rounded-3xl p-5 sm:p-6 shadow-xl space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold text-purple-300 uppercase tracking-wider flex items-center gap-2">
+                  <Users className="w-4 h-4 text-orange-400" />
+                  <span>Lista de Invitados Registrados ({hostUsers.length})</span>
+                </h3>
+
+                <button
+                  type="button"
+                  onClick={fetchHostUsers}
+                  disabled={isLoadingHostUsers}
+                  className="inline-flex items-center gap-1 text-[11px] font-bold text-orange-400 hover:text-orange-300 bg-purple-950/80 border border-purple-500/30 px-3 py-1.5 rounded-xl cursor-pointer transition-colors"
+                >
+                  <RotateCcw className={`w-3 h-3 ${isLoadingHostUsers ? 'animate-spin' : ''}`} />
+                  <span>{isLoadingHostUsers ? 'Cargando...' : 'Actualizar'}</span>
+                </button>
+              </div>
+
+              {/* Inline Delete Confirmation */}
+              {hostUserToDelete && (
+                <div className="p-3.5 bg-red-950/95 border-2 border-red-500 rounded-2xl text-xs space-y-2.5 shadow-2xl animate-in fade-in zoom-in-95">
+                  <div className="font-bold text-white flex items-center gap-1.5">
+                    <Trash2 className="w-4 h-4 text-red-400" />
+                    <span>¿Eliminar a {hostUserToDelete.name} ({hostUserToDelete.code})?</span>
+                  </div>
+                  <p className="text-red-200 text-[11px]">
+                    Se borrará de la lista, de la pasarela y se eliminarán todos sus votos y fotos.
+                  </p>
+                  <div className="flex gap-2 justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setHostUserToDelete(null)}
+                      className="px-3.5 py-1.5 bg-purple-900/60 hover:bg-purple-800 text-purple-200 rounded-xl text-xs font-semibold cursor-pointer"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleHostDeleteUser(hostUserToDelete.code, hostUserToDelete.name)}
+                      className="px-4 py-1.5 bg-red-600 hover:bg-red-500 text-white rounded-xl text-xs font-extrabold shadow cursor-pointer"
+                    >
+                      Sí, Eliminar
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Guests List */}
+              {hostUsers.length === 0 ? (
+                <div className="text-center py-8 text-xs text-purple-400 bg-purple-950/20 rounded-2xl border border-purple-500/20 space-y-2">
+                  <p className="italic">No hay invitados registrados en la base de datos todavía.</p>
+                  <button
+                    type="button"
+                    onClick={handleHostSeed}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-purple-900/60 hover:bg-purple-800 text-orange-400 rounded-xl text-xs font-bold cursor-pointer"
+                  >
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Cargar 5 invitados de prueba para simular</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+                  {(hostUsers || []).filter(u => Boolean(u && u.code)).map((u) => (
+                    <div
+                      key={u.code}
+                      className="flex items-center justify-between p-3 rounded-2xl bg-purple-950/40 border border-purple-500/20 hover:border-purple-500/40 text-xs transition-colors"
+                    >
+                      <div className="space-y-0.5">
+                        <div className="font-bold text-purple-100 flex items-center gap-2">
+                          <span>{u.name}</span>
+                          {u.confirmed ? (
+                            <span className="text-[10px] bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-1.5 py-0.5 rounded">
+                              Confirmado
+                            </span>
+                          ) : (
+                            <span className="text-[10px] bg-amber-500/20 text-amber-400 border border-amber-500/30 px-1.5 py-0.5 rounded">
+                              Eligiendo
+                            </span>
+                          )}
+                          {u.photoUrl && <span title="Foto en pasarela">📸</span>}
+                        </div>
+                        <div className="text-[11px] text-orange-400 font-medium">
+                          {u.character?.name || u.characterId}
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2.5">
+                        <div className="text-right">
+                          <div className="font-mono text-purple-200 font-bold bg-black/60 px-2.5 py-1 rounded-lg border border-purple-500/30 text-xs">
+                            {u.code}
+                          </div>
+                          <div className="text-[10px] text-purple-400 mt-0.5">
+                            {u.rollsLeft} cambios rest.
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => setHostUserToDelete({ code: u.code, name: u.name })}
+                          className="p-2 rounded-xl bg-red-950/60 hover:bg-red-800 text-red-400 hover:text-white border border-red-500/30 transition-colors cursor-pointer"
+                          title={`Eliminar a ${u.name} (${u.code})`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Bottom Admin Exit Bar */}
+            <div className="flex items-center justify-between p-4 bg-purple-950/30 border border-purple-500/20 rounded-2xl text-xs">
+              <span className="text-purple-400 font-medium">
+                Sesión de anfitrión activa (Nico)
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSuperAdmin(false);
+                  localStorage.removeItem('hlw_is_superadmin');
+                  setShowHostModal(false);
+                  setActiveView('home');
+                }}
+                className="px-3.5 py-1.5 bg-red-950/50 hover:bg-red-900/60 border border-red-500/40 text-red-300 hover:text-white rounded-xl font-bold cursor-pointer transition-colors"
+              >
+                Cerrar Sesión de Admin
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ----------------- SUPERADMIN GUEST VIEW PREVIEW BANNER ('home' view when superadmin) ----------------- */}
+        {isSuperAdmin && activeView === 'home' && (
+          <div className="mb-6 p-4 rounded-2xl bg-amber-950/80 border-2 border-amber-500/60 flex items-center justify-between gap-3 text-amber-200 max-w-xl mx-auto shadow-xl">
+            <div className="flex items-center gap-2">
+              <Crown className="w-5 h-5 text-amber-400 shrink-0" />
+              <div className="text-xs">
+                <span className="font-bold text-white">Vista previa de cómo lo ven los invitados</span>
+                <p className="text-amber-300/80">Estás simulando la pantalla de inicio sin privilegios de admin.</p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setActiveView('admin');
+                fetchHostUsers();
+              }}
+              className="px-3.5 py-1.5 bg-orange-600 hover:bg-orange-500 text-white font-black text-xs rounded-xl shadow cursor-pointer shrink-0 transition-transform active:scale-95"
+            >
+              ⚙️ Volver a Vista Admin
+            </button>
           </div>
         )}
 
@@ -1333,35 +1759,60 @@ export default function App() {
 
         {/* ----------------- VIEW 4: LA PASARELA (Catwalk & Guessing & Live Voting) ----------------- */}
         {activeView === 'catwalk' && (
-          <CatwalkRunway
-            myCode={isSuperAdmin ? (user?.code || 'ADMIN') : (user?.code || '')}
-            myName={isSuperAdmin ? (user?.name || 'Nico (Superadmin)') : (user?.name || '')}
-            myCharacterName={isSuperAdmin ? (character?.name || 'Anfitrión Observador') : (character?.name || '')}
-            myCurrentPhotoUrl={user?.photoUrl}
-            contestants={contestants}
-            allSubmitted={allSubmitted}
-            totalRegistered={totalRegistered}
-            submittedCount={submittedCount}
-            votingFinalized={votingFinalized}
-            myScore={myScore}
-            detectiveScores={detectiveScores}
-            cutreWinner={cutreWinner}
-            onUploadPhoto={handleUploadPhoto}
-            onVote={handleVote}
-            onGuess={handleGuess}
-            onVoteCutre={handleVoteCutre}
-            onRefresh={() => fetchCatwalk(isSuperAdmin ? (user?.code || 'ADMIN') : user?.code)}
-            onOpenCeremony={() => setShowCeremonyModal(true)}
-            onGoToLogin={() => {
-              setActiveView('home');
-              if (!user && !isSuperAdmin) {
-                setShowCodeLogin(true);
-              }
-            }}
-            onSwitchUser={(code) => {
-              fetchUserByCode(code);
-            }}
-          />
+          <div className="space-y-4">
+            {isSuperAdmin && (
+              <div className="bg-amber-950/90 border-2 border-amber-500/60 rounded-2xl p-3 sm:p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-xl glow-box-orange">
+                <div className="flex items-center gap-2.5 text-center sm:text-left">
+                  <Crown className="w-5 h-5 text-amber-400 animate-bounce shrink-0" />
+                  <div>
+                    <span className="font-black text-xs sm:text-sm text-white">MODO SUPERADMIN OBSERVADOR</span>
+                    <p className="text-[11px] text-amber-300/80">Estás en la pasarela en vivo. Puedes probar votos o volver al panel de control.</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveView('admin');
+                    fetchHostUsers();
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white font-black text-xs rounded-xl shadow-lg cursor-pointer transition-all active:scale-95 shrink-0"
+                >
+                  <Crown className="w-3.5 h-3.5 text-yellow-200" />
+                  <span>⚙️ Ir a Vista Admin (Control Total)</span>
+                </button>
+              </div>
+            )}
+
+            <CatwalkRunway
+              myCode={isSuperAdmin ? (user?.code || 'ADMIN') : (user?.code || '')}
+              myName={isSuperAdmin ? (user?.name || 'Nico (Superadmin)') : (user?.name || '')}
+              myCharacterName={isSuperAdmin ? (character?.name || 'Anfitrión Observador') : (character?.name || '')}
+              myCurrentPhotoUrl={user?.photoUrl}
+              contestants={contestants}
+              allSubmitted={allSubmitted}
+              totalRegistered={totalRegistered}
+              submittedCount={submittedCount}
+              votingFinalized={votingFinalized}
+              myScore={myScore}
+              detectiveScores={detectiveScores}
+              cutreWinner={cutreWinner}
+              onUploadPhoto={handleUploadPhoto}
+              onVote={handleVote}
+              onGuess={handleGuess}
+              onVoteCutre={handleVoteCutre}
+              onRefresh={() => fetchCatwalk(isSuperAdmin ? (user?.code || 'ADMIN') : user?.code)}
+              onOpenCeremony={() => setShowCeremonyModal(true)}
+              onGoToLogin={() => {
+                setActiveView('home');
+                if (!user && !isSuperAdmin) {
+                  setShowCodeLogin(true);
+                }
+              }}
+              onSwitchUser={(code) => {
+                fetchUserByCode(code);
+              }}
+            />
+          </div>
         )}
       </main>
 
@@ -1369,72 +1820,12 @@ export default function App() {
       <HostModal
         isOpen={showHostModal}
         onClose={() => setShowHostModal(false)}
-        isUnlocked={isUnlocked}
-        votingFinalized={votingFinalized}
-        isSuperAdmin={isSuperAdmin}
         onSuperadminAuth={() => {
           setIsSuperAdmin(true);
           localStorage.setItem('hlw_is_superadmin', 'true');
-        }}
-        onHostLogout={() => {
-          setIsSuperAdmin(false);
-          localStorage.removeItem('hlw_is_superadmin');
-          setShowHostModal(false);
-          setActiveView('home');
-        }}
-        onToggleCatwalk={async () => {
-          const res = await safeFetchJson<{ isUnlocked: boolean }>('/api/host/toggle-catwalk', { method: 'POST' });
-          if (res.data) {
-            setIsUnlocked(res.data.isUnlocked);
-          } else {
-            setIsUnlocked(prev => !prev);
-          }
-          await fetchCatwalk(user?.code);
-        }}
-        onToggleFinalize={async () => {
-          const res = await safeFetchJson<{ votingFinalized: boolean }>('/api/host/toggle-finalize', { method: 'POST' });
-          if (res.data) {
-            setVotingFinalized(res.data.votingFinalized);
-          } else {
-            setVotingFinalized(prev => !prev);
-          }
-          await fetchCatwalk(user?.code);
-        }}
-        onSeedDemo={async () => {
-          const res = await safeFetchJson<{ primaryUser?: UserData; primaryCharacter?: Character }>('/api/host/seed-demo', { method: 'POST' });
-          setIsUnlocked(true);
-          if (isSuperAdmin) {
-            // Keep Nico in pure superadmin observer mode without forcing a user profile
-            await fetchCatwalk('ADMIN');
-          } else if (res.data?.primaryUser) {
-            setUser(res.data.primaryUser);
-            setCharacter(res.data.primaryCharacter || null);
-            localStorage.setItem('hlw_party_code', res.data.primaryUser.code);
-            localStorage.setItem('hlw_local_user', JSON.stringify(res.data.primaryUser));
-            if (res.data.primaryCharacter) {
-              localStorage.setItem('hlw_local_character', JSON.stringify(res.data.primaryCharacter));
-            }
-            await fetchCatwalk(res.data.primaryUser.code);
-          }
-        }}
-        onReset={async () => {
-          await safeFetchJson('/api/host/reset', { method: 'POST' });
-          setUser(null);
-          setCharacter(null);
-          localStorage.removeItem('hlw_party_code');
-          localStorage.removeItem('hlw_local_user');
-          localStorage.removeItem('hlw_local_character');
-          setIsUnlocked(false);
-          setVotingFinalized(false);
-          setActiveView('home');
-          await fetchCatwalk();
-        }}
-        onOpenCatwalk={() => {
-          setActiveView('catwalk');
-          fetchCatwalk(user?.code);
-        }}
-        onOpenCeremony={() => {
-          setShowCeremonyModal(true);
+          setActiveView('admin');
+          fetchCatwalk('ADMIN');
+          fetchHostUsers();
         }}
       />
 
