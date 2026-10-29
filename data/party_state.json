@@ -1,11 +1,250 @@
 {
   "partyDate": "2026-10-30T22:00:00",
   "partyLocation": "Casa de Nico",
-  "forceUnlockCatwalk": false,
+  "forceUnlockCatwalk": true,
   "votingFinalized": false,
-  "users": {},
-  "votes": {},
-  "guesses": {},
-  "cutreVotes": {},
+  "users": {
+    "HLW-MU5T": {
+      "code": "HLW-MU5T",
+      "name": "Nico (Anfitrión)",
+      "characterId": "ghostface",
+      "confirmed": true,
+      "rollsLeft": 0,
+      "photoUrl": "https://images.unsplash.com/photo-1509248961158-e54f6934749c?auto=format&fit=crop&w=600&q=80",
+      "photoTimestamp": 1793288447408,
+      "registeredAt": 1793284943643
+    },
+    "HLW-JLP8": {
+      "code": "HLW-JLP8",
+      "name": "Sofía",
+      "characterId": "wednesday-addams",
+      "confirmed": true,
+      "rollsLeft": 0,
+      "photoUrl": "https://images.unsplash.com/photo-1508214751196-bcfd4ca60f91?auto=format&fit=crop&w=600&q=80",
+      "photoTimestamp": 1793288517558,
+      "registeredAt": 1793284943643
+    },
+    "HLW-FY9E": {
+      "code": "HLW-FY9E",
+      "name": "Carlos",
+      "characterId": "beetlejuice",
+      "confirmed": true,
+      "rollsLeft": 0,
+      "photoUrl": "https://images.unsplash.com/photo-1542751371-adc38448a05e?auto=format&fit=crop&w=600&q=80",
+      "photoTimestamp": 1793288463245,
+      "registeredAt": 1793284943643
+    },
+    "HLW-SU23": {
+      "code": "HLW-SU23",
+      "name": "Laura",
+      "characterId": "coraline-jones",
+      "confirmed": true,
+      "rollsLeft": 0,
+      "photoUrl": "https://images.unsplash.com/photo-1579783902614-a3fb3927b675?auto=format&fit=crop&w=600&q=80",
+      "photoTimestamp": 1793288538446,
+      "registeredAt": 1793284943643
+    },
+    "HLW-JZT7": {
+      "code": "HLW-JZT7",
+      "name": "Marcos",
+      "characterId": "pennywise",
+      "confirmed": true,
+      "rollsLeft": 0,
+      "photoUrl": "https://images.unsplash.com/photo-1541781774459-bb2af2f05b55?auto=format&fit=crop&w=600&q=80",
+      "photoTimestamp": 1793288469573,
+      "registeredAt": 1793284943643
+    },
+    "HLW-UJND": {
+      "code": "HLW-UJND",
+      "name": "Tester",
+      "characterId": "malefica",
+      "confirmed": true,
+      "rollsLeft": 2,
+      "registeredAt": 1793289186294,
+      "photoUrl": "data:image/jpeg;base64,dGVzdA==",
+      "photoTimestamp": 1793289186305
+    },
+    "HLW-L6W5": {
+      "code": "HLW-L6W5",
+      "name": "Tester1793289201917",
+      "characterId": "la-otra-madre",
+      "confirmed": true,
+      "rollsLeft": 2,
+      "registeredAt": 1793289201938,
+      "photoUrl": "data:image/jpeg;base64,dGVzdA==",
+      "photoTimestamp": 1793289201949
+    }
+  },
+  "votes": {
+    "HLW-MU5T": {
+      "HLW-JLP8": 5,
+      "HLW-FY9E": 5,
+      "HLW-SU23": 3,
+      "HLW-JZT7": 4
+    },
+    "HLW-JLP8": {
+      "HLW-MU5T": 4,
+      "HLW-FY9E": 3,
+      "HLW-SU23": 4,
+      "HLW-JZT7": 4
+    },
+    "HLW-FY9E": {
+      "HLW-MU5T": 5,
+      "HLW-JLP8": 4,
+      "HLW-SU23": 3,
+      "HLW-JZT7": 4
+    },
+    "HLW-SU23": {
+      "HLW-MU5T": 5,
+      "HLW-JLP8": 3,
+      "HLW-FY9E": 4,
+      "HLW-JZT7": 3
+    },
+    "HLW-JZT7": {
+      "HLW-MU5T": 3,
+      "HLW-JLP8": 4,
+      "HLW-FY9E": 4,
+      "HLW-SU23": 5
+    },
+    "HLW-UJND": {
+      "HLW-MU5T": 3
+    },
+    "HLW-L6W5": {
+      "HLW-MU5T": 5
+    }
+  },
+  "guesses": {
+    "HLW-MU5T": {
+      "HLW-JLP8": {
+        "guessText": "Vampiro cualquiera",
+        "isCorrect": false,
+        "timestamp": 1793288543643
+      },
+      "HLW-FY9E": {
+        "guessText": "Beetlejuice",
+        "isCorrect": true,
+        "timestamp": 1793288543643
+      },
+      "HLW-SU23": {
+        "guessText": "Vampiro cualquiera",
+        "isCorrect": false,
+        "timestamp": 1793288543643
+      },
+      "HLW-JZT7": {
+        "guessText": "Pennywise el Payaso Bailarín",
+        "isCorrect": true,
+        "timestamp": 1793288543643
+      }
+    },
+    "HLW-JLP8": {
+      "HLW-MU5T": {
+        "guessText": "Vampiro cualquiera",
+        "isCorrect": false,
+        "timestamp": 1793288543643
+      },
+      "HLW-FY9E": {
+        "guessText": "Vampiro cualquiera",
+        "isCorrect": false,
+        "timestamp": 1793288543643
+      },
+      "HLW-SU23": {
+        "guessText": "Coraline Jones",
+        "isCorrect": true,
+        "timestamp": 1793288543643
+      },
+      "HLW-JZT7": {
+        "guessText": "Vampiro cualquiera",
+        "isCorrect": false,
+        "timestamp": 1793288543643
+      }
+    },
+    "HLW-FY9E": {
+      "HLW-MU5T": {
+        "guessText": "Ghostface",
+        "isCorrect": true,
+        "timestamp": 1793288543643
+      },
+      "HLW-JLP8": {
+        "guessText": "Vampiro cualquiera",
+        "isCorrect": false,
+        "timestamp": 1793288543643
+      },
+      "HLW-SU23": {
+        "guessText": "Vampiro cualquiera",
+        "isCorrect": false,
+        "timestamp": 1793288543643
+      },
+      "HLW-JZT7": {
+        "guessText": "Pennywise el Payaso Bailarín",
+        "isCorrect": true,
+        "timestamp": 1793288543643
+      }
+    },
+    "HLW-SU23": {
+      "HLW-MU5T": {
+        "guessText": "Vampiro cualquiera",
+        "isCorrect": false,
+        "timestamp": 1793288543644
+      },
+      "HLW-JLP8": {
+        "guessText": "Miércoles Addams",
+        "isCorrect": true,
+        "timestamp": 1793288543644
+      },
+      "HLW-FY9E": {
+        "guessText": "Vampiro cualquiera",
+        "isCorrect": false,
+        "timestamp": 1793288543644
+      },
+      "HLW-JZT7": {
+        "guessText": "Vampiro cualquiera",
+        "isCorrect": false,
+        "timestamp": 1793288543644
+      }
+    },
+    "HLW-JZT7": {
+      "HLW-MU5T": {
+        "guessText": "Ghostface",
+        "isCorrect": true,
+        "timestamp": 1793288543644
+      },
+      "HLW-JLP8": {
+        "guessText": "Vampiro cualquiera",
+        "isCorrect": false,
+        "timestamp": 1793288543644
+      },
+      "HLW-FY9E": {
+        "guessText": "Beetlejuice",
+        "isCorrect": true,
+        "timestamp": 1793288543644
+      },
+      "HLW-SU23": {
+        "guessText": "Vampiro cualquiera",
+        "isCorrect": false,
+        "timestamp": 1793288543644
+      }
+    },
+    "HLW-UJND": {
+      "HLW-MU5T": {
+        "guessText": "Dracula",
+        "isCorrect": false,
+        "timestamp": 1793289186331
+      }
+    },
+    "HLW-L6W5": {
+      "HLW-MU5T": {
+        "guessText": "Dracula",
+        "isCorrect": false,
+        "timestamp": 1793289201982
+      }
+    }
+  },
+  "cutreVotes": {
+    "HLW-MU5T": "HLW-FY9E",
+    "HLW-JLP8": "HLW-FY9E",
+    "HLW-SU23": "HLW-FY9E",
+    "HLW-UJND": "HLW-JLP8",
+    "HLW-L6W5": "HLW-MU5T"
+  },
   "customCharacters": {}
 }

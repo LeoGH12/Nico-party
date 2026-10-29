@@ -14,7 +14,9 @@ import {
   XCircle, 
   Crown,
   Scroll,
-  Film
+  Film,
+  ImageIcon,
+  Lock
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { halloweenAudio } from '../utils/audio.ts';
@@ -105,7 +107,8 @@ export const CatwalkRunway: React.FC<CatwalkRunwayProps> = ({
   // Staged special vote before confirmation
   const [stagedSpecialVote, setStagedSpecialVote] = useState<string | null>(null);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const galleryInputRef = useRef<HTMLInputElement>(null);
 
   // STABLE RUNWAY ORDER: Cards MUST remain in the exact position they loaded and NEVER move when votes change!
   const runwayContestants = useMemo(() => {
@@ -123,6 +126,11 @@ export const CatwalkRunway: React.FC<CatwalkRunwayProps> = ({
       if (b.avgScore !== a.avgScore) return b.avgScore - a.avgScore;
       return b.totalVotes - a.totalVotes;
     });
+  }, [contestants]);
+
+  // Check if voter has already committed their 1 and only special vote
+  const hasAnySpecialVoteCast = useMemo(() => {
+    return contestants.some(c => c.isCutreVoteFromMe);
   }, [contestants]);
 
   // Compress & resize image to max 1000px for fast mobile uploads
@@ -181,11 +189,19 @@ export const CatwalkRunway: React.FC<CatwalkRunwayProps> = ({
     }
   };
 
-  const handleRetakePhoto = () => {
+  const handleRetakeCamera = () => {
     setPhotoPreview(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-      fileInputRef.current.click();
+    if (cameraInputRef.current) {
+      cameraInputRef.current.value = '';
+      cameraInputRef.current.click();
+    }
+  };
+
+  const handleRetakeGallery = () => {
+    setPhotoPreview(null);
+    if (galleryInputRef.current) {
+      galleryInputRef.current.value = '';
+      galleryInputRef.current.click();
     }
   };
 
@@ -243,8 +259,12 @@ export const CatwalkRunway: React.FC<CatwalkRunwayProps> = ({
     }
   };
 
-  // Special vote (called "Votos a secas") with confirmation
-  const handleSpecialVoteClick = async (targetCode: string, isCurrentlyVoted: boolean) => {
+  // Special vote (Premio Especial) with confirmation - Strictly 1 permanent vote
+  const handleSpecialVoteClick = async (targetCode: string) => {
+    // If any special vote was already cast by this voter, it is locked!
+    const alreadyVotedCode = contestants.find(c => c.isCutreVoteFromMe)?.code;
+    if (alreadyVotedCode) return;
+
     if (!myCode) {
       const fallback = contestants.find(c => c.code !== targetCode);
       if (fallback && onSwitchUser) {
@@ -253,13 +273,6 @@ export const CatwalkRunway: React.FC<CatwalkRunwayProps> = ({
         onGoToLogin();
         return;
       }
-    }
-    if (isCurrentlyVoted) {
-      // Retract vote
-      halloweenAudio.playVoteStar();
-      await onVoteCutre(targetCode);
-      setStagedSpecialVote(null);
-      return;
     }
 
     if (stagedSpecialVote === targetCode) {
@@ -298,12 +311,20 @@ export const CatwalkRunway: React.FC<CatwalkRunwayProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Hidden native camera file input */}
+      {/* Input de cámara nativa (hardware móvil directo) */}
       <input
-        ref={fileInputRef}
+        ref={cameraInputRef}
         type="file"
         accept="image/*"
         capture="environment"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+      {/* Input de galería / explorador de fotos del dispositivo */}
+      <input
+        ref={galleryInputRef}
+        type="file"
+        accept="image/*"
         className="hidden"
         onChange={handleFileChange}
       />
@@ -463,15 +484,27 @@ export const CatwalkRunway: React.FC<CatwalkRunwayProps> = ({
             </p>
           </div>
 
-          <div className="flex items-center gap-3 w-full sm:w-auto">
+          <div className="flex flex-col sm:flex-row items-center gap-2.5 w-full sm:w-auto">
             {!photoPreview && (
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="w-full sm:w-auto flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-orange-600 hover:from-purple-500 hover:to-orange-500 text-white text-xs font-bold py-3 px-5 rounded-2xl shadow-lg transition-all cursor-pointer"
-              >
-                <Camera className="w-4 h-4" />
-                <span>{myCurrentPhotoUrl ? '🔄 Repetir / Cambiar mi foto' : '📸 Tomarme la foto con el móvil'}</span>
-              </button>
+              <>
+                <button
+                  onClick={() => cameraInputRef.current?.click()}
+                  className="w-full sm:w-auto flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-orange-600 hover:from-purple-500 hover:to-orange-500 text-white text-xs font-bold py-3 px-4 rounded-2xl shadow-lg transition-all cursor-pointer active:scale-95"
+                  title="Abrir la cámara de tu móvil para hacer la foto en vivo"
+                >
+                  <Camera className="w-4 h-4 text-orange-200" />
+                  <span>{myCurrentPhotoUrl ? '📸 Repetir con Cámara' : '📸 Hacer Foto con Cámara'}</span>
+                </button>
+
+                <button
+                  onClick={() => galleryInputRef.current?.click()}
+                  className="w-full sm:w-auto flex items-center justify-center gap-2 bg-purple-900/80 hover:bg-purple-800 text-purple-200 text-xs font-bold py-3 px-4 rounded-2xl border border-purple-500/40 shadow-md transition-all cursor-pointer active:scale-95"
+                  title="Seleccionar una fotografía guardada en tu galería o carrete"
+                >
+                  <ImageIcon className="w-4 h-4 text-purple-300" />
+                  <span>🖼️ Subir desde Galería</span>
+                </button>
+              </>
             )}
           </div>
         </div>
@@ -497,18 +530,27 @@ export const CatwalkRunway: React.FC<CatwalkRunwayProps> = ({
 
               <div className="flex flex-wrap gap-2.5 justify-center sm:justify-start pt-1">
                 <button
-                  onClick={handleRetakePhoto}
+                  onClick={handleRetakeCamera}
                   disabled={isUploading}
-                  className="flex items-center gap-2 bg-purple-900/80 hover:bg-purple-800 text-purple-200 text-xs font-bold py-2.5 px-4 rounded-xl border border-purple-500/40 cursor-pointer"
+                  className="flex items-center gap-1.5 bg-purple-900/80 hover:bg-purple-800 text-purple-200 text-xs font-bold py-2.5 px-3.5 rounded-xl border border-purple-500/40 cursor-pointer"
                 >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  <span>Repetir foto</span>
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>Cámara</span>
+                </button>
+
+                <button
+                  onClick={handleRetakeGallery}
+                  disabled={isUploading}
+                  className="flex items-center gap-1.5 bg-purple-900/80 hover:bg-purple-800 text-purple-200 text-xs font-bold py-2.5 px-3.5 rounded-xl border border-purple-500/40 cursor-pointer"
+                >
+                  <ImageIcon className="w-3.5 h-3.5" />
+                  <span>Galería</span>
                 </button>
 
                 <button
                   onClick={handleConfirmPhoto}
                   disabled={isUploading}
-                  className="flex items-center gap-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-400 hover:to-amber-400 text-white text-xs font-extrabold py-2.5 px-6 rounded-xl shadow-lg shadow-orange-500/30 cursor-pointer"
+                  className="flex items-center gap-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-400 hover:to-amber-400 text-white text-xs font-extrabold py-2.5 px-5 rounded-xl shadow-lg shadow-orange-500/30 cursor-pointer"
                 >
                   {isUploading ? (
                     <>
@@ -794,99 +836,140 @@ export const CatwalkRunway: React.FC<CatwalkRunwayProps> = ({
                                 <span className="text-purple-200 font-bold">
                                   Juego 2: Puntúa este disfraz:
                                 </span>
-                                {myVote && currentStagedStar === undefined && (
+                                {myVote && (
                                   <span className="text-emerald-400 font-bold flex items-center gap-1 text-xs bg-emerald-950/80 px-2.5 py-1 rounded-md border border-emerald-500/30">
-                                    <Check className="w-3.5 h-3.5" /> Voto: {myVote} ⭐
+                                    <Lock className="w-3 h-3 text-emerald-400" /> Voto: {myVote} ⭐ (Fijado)
                                   </span>
                                 )}
                               </div>
 
-                              <div className="bg-purple-950/70 p-3 rounded-2xl border border-purple-500/30 space-y-2.5">
-                                <div className="flex items-center justify-between gap-1.5">
-                                  {[1, 2, 3, 4, 5].map((starVal) => {
-                                    const isSelected = activeStarDisplay === starVal;
-                                    const isPassed = activeStarDisplay >= starVal;
-
-                                    return (
-                                      <button
-                                        key={starVal}
-                                        type="button"
-                                        onClick={() => setStagedStars(prev => ({ ...prev, [contestant.code]: starVal }))}
-                                        disabled={votingTarget === contestant.code}
-                                        className={`flex-1 min-h-[44px] py-2 flex items-center justify-center rounded-xl transition-all cursor-pointer active:scale-95 ${
-                                          isSelected
-                                            ? 'bg-orange-500/30 border border-orange-500/50'
-                                            : 'hover:bg-purple-900/50 border border-transparent'
-                                        }`}
-                                        title={`Seleccionar ${starVal} estrellas`}
-                                      >
-                                        <Star
-                                          className={`w-6 h-6 sm:w-7 sm:h-7 transition-colors ${
-                                            isPassed
-                                              ? 'fill-amber-400 text-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.7)]'
-                                              : 'text-purple-600 hover:text-amber-300'
-                                          }`}
-                                        />
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-
-                                {/* Botón de Confirmar Voto (para evitar pulsar sin querer) */}
-                                {currentStagedStar !== undefined && currentStagedStar !== myVote && (
-                                  <div className="flex items-center gap-2 pt-1">
-                                    <button
-                                      type="button"
-                                      onClick={() => handleConfirmVote(contestant.code)}
-                                      disabled={votingTarget === contestant.code}
-                                      className="flex-1 flex items-center justify-center gap-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-400 hover:to-amber-400 active:scale-[0.98] text-white text-sm font-extrabold py-3 px-4 rounded-xl shadow-lg shadow-orange-500/30 cursor-pointer animate-pulse"
-                                    >
-                                      <Check className="w-4 h-4" />
-                                      <span>
-                                        {votingTarget === contestant.code
-                                          ? 'Guardando voto...'
-                                          : `Confirmar voto (${currentStagedStar} ⭐)`}
-                                      </span>
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => setStagedStars(prev => {
-                                        const next = { ...prev };
-                                        delete next[contestant.code];
-                                        return next;
-                                      })}
-                                      className="text-xs text-purple-300 hover:text-white px-3 py-3 rounded-xl border border-purple-500/30 bg-purple-900/40 cursor-pointer"
-                                    >
-                                      Deshacer
-                                    </button>
+                              {myVote !== null && myVote !== undefined ? (
+                                /* VOTO DE ESTRELLAS YA CONFIRMADO: BLOQUEADO Y EN MODO LECTURA */
+                                <div className="bg-purple-950/70 p-3 rounded-2xl border border-emerald-500/30 space-y-2">
+                                  <div className="flex items-center justify-between text-[11px] text-emerald-400 font-semibold">
+                                    <span className="flex items-center gap-1.5">
+                                      <Lock className="w-3.5 h-3.5" /> Puntuación confirmada: {myVote} ⭐
+                                    </span>
+                                    <span className="text-purple-400/80 italic font-normal">
+                                      Voto definitivo (fijado)
+                                    </span>
                                   </div>
-                                )}
-                              </div>
+                                  <div className="flex items-center justify-between gap-1.5">
+                                    {[1, 2, 3, 4, 5].map((starVal) => {
+                                      const isPassed = (myVote as number) >= starVal;
+                                      return (
+                                        <div
+                                          key={starVal}
+                                          className="flex-1 min-h-[40px] py-1.5 flex items-center justify-center rounded-xl bg-purple-900/30 border border-purple-500/20 cursor-not-allowed"
+                                          title={`Puntuación asignada: ${myVote} estrellas`}
+                                        >
+                                          <Star
+                                            className={`w-6 h-6 sm:w-7 sm:h-7 ${
+                                              isPassed
+                                                ? 'fill-amber-400 text-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.7)]'
+                                                : 'text-purple-800'
+                                            }`}
+                                          />
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              ) : (
+                                /* SELECCIÓN Y CONFIRMACIÓN DE ESTRELLAS */
+                                <div className="bg-purple-950/70 p-3 rounded-2xl border border-purple-500/30 space-y-2.5">
+                                  <div className="flex items-center justify-between gap-1.5">
+                                    {[1, 2, 3, 4, 5].map((starVal) => {
+                                      const isSelected = activeStarDisplay === starVal;
+                                      const isPassed = activeStarDisplay >= starVal;
+
+                                      return (
+                                        <button
+                                          key={starVal}
+                                          type="button"
+                                          onClick={() => setStagedStars(prev => ({ ...prev, [contestant.code]: starVal }))}
+                                          disabled={votingTarget === contestant.code}
+                                          className={`flex-1 min-h-[44px] py-2 flex items-center justify-center rounded-xl transition-all cursor-pointer active:scale-95 ${
+                                            isSelected
+                                              ? 'bg-orange-500/30 border border-orange-500/50'
+                                              : 'hover:bg-purple-900/50 border border-transparent'
+                                          }`}
+                                          title={`Seleccionar ${starVal} estrellas`}
+                                        >
+                                          <Star
+                                            className={`w-6 h-6 sm:w-7 sm:h-7 transition-colors ${
+                                              isPassed
+                                                ? 'fill-amber-400 text-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.7)]'
+                                                : 'text-purple-600 hover:text-amber-300'
+                                            }`}
+                                          />
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+
+                                  {/* Botón de Confirmar Voto (para evitar pulsar sin querer) */}
+                                  {currentStagedStar !== undefined && currentStagedStar !== myVote && (
+                                    <div className="flex items-center gap-2 pt-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleConfirmVote(contestant.code)}
+                                        disabled={votingTarget === contestant.code}
+                                        className="flex-1 flex items-center justify-center gap-2 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-400 hover:to-amber-400 active:scale-[0.98] text-white text-sm font-extrabold py-3 px-4 rounded-xl shadow-lg shadow-orange-500/30 cursor-pointer animate-pulse"
+                                      >
+                                        <Check className="w-4 h-4" />
+                                        <span>
+                                          {votingTarget === contestant.code
+                                            ? 'Guardando voto...'
+                                            : `Confirmar voto (${currentStagedStar} ⭐)`}
+                                        </span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setStagedStars(prev => {
+                                          const next = { ...prev };
+                                          delete next[contestant.code];
+                                          return next;
+                                        })}
+                                        className="text-xs text-purple-300 hover:text-white px-3 py-3 rounded-xl border border-purple-500/30 bg-purple-900/40 cursor-pointer"
+                                      >
+                                        Deshacer
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
                       </div>
                     </div>
 
-                    {/* VOTO ESPECIAL (Llamado "Votos" a secas, con confirmación) */}
+                    {/* VOTO ESPECIAL (1 solo voto definitivo en toda la noche) */}
                     {!isMe && (
                       <div className="p-3 pt-0 border-t border-purple-500/20">
                         {contestant.isCutreVoteFromMe ? (
-                          <button
-                            onClick={() => handleSpecialVoteClick(contestant.code, true)}
-                            className="w-full flex items-center justify-center gap-2 py-3 px-3 rounded-xl text-xs sm:text-sm font-bold bg-amber-600/30 text-amber-300 border border-amber-500 shadow-lg shadow-amber-500/20 cursor-pointer transition-all active:scale-[0.98]"
-                          >
+                          /* Este participante tiene el voto especial emitido por mí */
+                          <div className="w-full flex items-center justify-center gap-2 py-3 px-3 rounded-xl text-xs sm:text-sm font-bold bg-amber-600/30 text-amber-300 border border-amber-500 shadow-lg shadow-amber-500/20 cursor-default">
                             <Crown className="w-4 h-4 text-amber-400" />
-                            <span>👑 Tu voto asignado (Pulsar para retirar)</span>
-                          </button>
+                            <Lock className="w-3.5 h-3.5 text-amber-400" />
+                            <span>👑 Tu Voto Especial Asignado (Fijado)</span>
+                          </div>
+                        ) : hasAnySpecialVoteCast ? (
+                          /* Ya votaste a otro participante: el botón queda bloqueado con candado */
+                          <div className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-semibold bg-purple-950/40 text-purple-400 border border-purple-500/20 opacity-60 cursor-not-allowed">
+                            <Lock className="w-3.5 h-3.5 text-purple-500" />
+                            <span>Voto especial ya utilizado en otro amigo</span>
+                          </div>
                         ) : stagedSpecialVote === contestant.code ? (
+                          /* Confirmación previa antes de gastar el único voto especial */
                           <div className="flex items-center gap-2">
                             <button
-                              onClick={() => handleSpecialVoteClick(contestant.code, false)}
+                              onClick={() => handleSpecialVoteClick(contestant.code)}
                               className="flex-1 flex items-center justify-center gap-2 bg-gradient-to-r from-amber-600 to-orange-600 text-white text-xs sm:text-sm font-extrabold py-3 px-3 rounded-xl shadow-lg cursor-pointer animate-pulse active:scale-[0.98]"
                             >
                               <Check className="w-4 h-4" />
-                              <span>Confirmar voto</span>
+                              <span>Confirmar mi único voto especial</span>
                             </button>
                             <button
                               onClick={() => setStagedSpecialVote(null)}
@@ -896,12 +979,13 @@ export const CatwalkRunway: React.FC<CatwalkRunwayProps> = ({
                             </button>
                           </div>
                         ) : (
+                          /* Botón inicial para elegir este candidato */
                           <button
                             onClick={() => setStagedSpecialVote(contestant.code)}
                             className="w-full flex items-center justify-center gap-2 py-3 px-3 rounded-xl text-xs sm:text-sm font-bold bg-purple-950/60 text-purple-300 hover:text-amber-300 hover:bg-purple-900/60 border border-purple-500/30 cursor-pointer transition-all active:scale-[0.98]"
                           >
                             <Scroll className="w-4 h-4 text-amber-400" />
-                            <span>Votar (1 voto)</span>
+                            <span>Votar (1 voto único)</span>
                           </button>
                         )}
                       </div>

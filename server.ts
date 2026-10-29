@@ -718,6 +718,13 @@ app.post('/api/vote', (req: Request, res: Response) => {
       return res.status(400).json({ error: 'La puntuación debe ser de 1 a 5 estrellas' });
     }
 
+    // STRICT: Once confirmed, you CANNOT vote again for this participant!
+    if (state.votes[vCode] && state.votes[vCode][tCode] !== undefined) {
+      return res.status(400).json({ 
+        error: 'Ya has emitido y confirmado tu puntuación de estrellas para este disfraz. No se permite volver a votar.' 
+      });
+    }
+
     if (!state.votes[vCode]) {
       state.votes[vCode] = {};
     }
@@ -735,7 +742,7 @@ app.post('/api/vote', (req: Request, res: Response) => {
   }
 });
 
-// SPECIAL VOTE: "El Disfraz Más Cutre"
+// SPECIAL VOTE: "El Disfraz Más Cutre" (1 solo voto definitivo en toda la noche)
 app.post('/api/vote-cutre', (req: Request, res: Response) => {
   try {
     if (!isCatwalkUnlocked()) {
@@ -762,16 +769,19 @@ app.post('/api/vote-cutre', (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Participante no encontrado o sin foto' });
     }
 
-    if (state.cutreVotes[vCode] === tCode) {
-      delete state.cutreVotes[vCode];
-    } else {
-      state.cutreVotes[vCode] = tCode;
+    // STRICT: Only 1 special vote per participant for the whole night! No changing or retracting!
+    if (state.cutreVotes[vCode]) {
+      return res.status(400).json({ 
+        error: 'Ya has utilizado tu único voto especial de la noche. No se permite cambiarlo ni votar a nadie más.' 
+      });
     }
+
+    state.cutreVotes[vCode] = tCode;
     saveState(state);
 
     res.json({
       success: true,
-      currentCutreVote: state.cutreVotes[vCode] || null
+      currentCutreVote: state.cutreVotes[vCode]
     });
   } catch (err) {
     console.error('Error in /api/vote-cutre:', err);
