@@ -123,9 +123,8 @@ function getState(): PartyState {
 function saveState(stateToSave: PartyState) {
   try {
     state = stateToSave;
-    const tempFile = `${DB_FILE}.tmp`;
-    fs.writeFileSync(tempFile, JSON.stringify(stateToSave, null, 2), 'utf-8');
-    fs.renameSync(tempFile, DB_FILE);
+    const dataStr = JSON.stringify(stateToSave, null, 2);
+    fs.writeFileSync(DB_FILE, dataStr, 'utf-8');
   } catch (err) {
     console.error('Error saving party state:', err);
   }
@@ -567,21 +566,46 @@ app.post('/api/get-user', (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Código requerido' });
     }
 
-    const formatted = code.trim().toUpperCase();
-    const user = state.users[formatted];
-    if (!user) {
-      return res.status(404).json({ error: 'Código no encontrado. Verifica si lo escribiste bien.' });
+    const raw = code.trim().toUpperCase();
+    const cleaned = raw.replace(/[^A-Z0-9]/g, '');
+
+    const suffixClean = cleaned.replace(/^HLW/, '');
+
+    // Search by exact key, cleaned alphanumeric match, or suffix match (e.g. "BBSD" or "HLW-BBSD")
+    let foundCode = Object.keys(state.users).find(k => {
+      const kRaw = k.toUpperCase();
+      const kClean = kRaw.replace(/[^A-Z0-9]/g, '');
+      const kSuffix = kClean.replace(/^HLW/, '');
+      return kRaw === raw || kClean === cleaned || (suffixClean.length >= 4 && kSuffix === suffixClean);
+    });
+
+    if (!foundCode) {
+      // Check if user accidentally typed their name instead of their code
+      const nameMatch = Object.values(state.users).find(
+        u => u.name.toLowerCase() === code.trim().toLowerCase()
+      );
+      if (nameMatch) {
+        return res.status(400).json({
+          error: `Has escrito tu nombre («${nameMatch.name}»). Por seguridad del secreto, el acceso es exclusivamente con tu código de 4 letras/números (ej. ${nameMatch.code}).`
+        });
+      }
+      return res.status(404).json({ error: `Código «${code.trim()}» no encontrado en el servidor. Verifica que lo hayas copiado exactamente.` });
     }
 
+    const user = state.users[foundCode];
     const all = getAllCharacters();
-    const character = all.find(c => c.id === user.characterId);
+    let character = all.find(c => c.id === user.characterId);
+    if (!character) {
+      character = state.customCharacters[user.characterId] || HALLOWEEN_CHARACTERS[0];
+    }
+
     res.json({
       user,
       character
     });
   } catch (err) {
     console.error('Error in /api/get-user:', err);
-    res.status(500).json({ error: 'Error al recuperar usuario' });
+    res.status(500).json({ error: 'Error al recuperar usuario del servidor' });
   }
 });
 

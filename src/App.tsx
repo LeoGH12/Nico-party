@@ -83,9 +83,6 @@ export default function App() {
   const [isSuperAdmin, setIsSuperAdmin] = useState<boolean>(() => {
     return localStorage.getItem('hlw_is_superadmin') === 'true';
   });
-  const [liveNotification, setLiveNotification] = useState<{ message: string; timestamp: number } | null>(null);
-  const prevContestantPhotosRef = useRef<Map<string, string>>(new Map());
-  const isInitialPollRef = useRef<boolean>(true);
   
   // Navigation active view ('home' for registration/lockdown, 'catwalk' for live runway & voting, 'admin' for full superadmin dashboard)
   const [activeView, setActiveView] = useState<'home' | 'catwalk' | 'admin'>(() => {
@@ -164,24 +161,12 @@ export default function App() {
     }
   }
 
-  function generateLocalCode(): string {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-    let res = 'HLW-';
-    for (let i = 0; i < 4; i++) {
-      res += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return res;
-  }
-
-  // Auto-dismiss live notification toast after 4.5 seconds
+  // Strict guard: nobody can view the catwalk until unlocked, except the SuperAdmin!
   useEffect(() => {
-    if (liveNotification) {
-      const timer = setTimeout(() => {
-        setLiveNotification(null);
-      }, 4500);
-      return () => clearTimeout(timer);
+    if (!isUnlocked && !isSuperAdmin && activeView === 'catwalk') {
+      setActiveView('home');
     }
-  }, [liveNotification]);
+  }, [isUnlocked, isSuperAdmin, activeView]);
 
   // Restore saved session from localStorage on startup
   useEffect(() => {
@@ -211,30 +196,6 @@ export default function App() {
 
       if (res.ok && res.data) {
         const newContestants = res.data.contestants || [];
-
-        // WhatsApp-like live detection of newly uploaded photos!
-        if (!isInitialPollRef.current) {
-          for (const c of newContestants) {
-            if (c.photoUrl && !prevContestantPhotosRef.current.get(c.code)) {
-              setLiveNotification({
-                message: `📸 ¡${c.name} acaba de subir su foto a la pasarela!`,
-                timestamp: Date.now()
-              });
-              halloweenAudio.playWhoosh();
-              break;
-            }
-          }
-        } else {
-          isInitialPollRef.current = false;
-        }
-
-        // Cache contestant photo status
-        const newMap = new Map<string, string>();
-        for (const c of newContestants) {
-          if (c.photoUrl) newMap.set(c.code, c.photoUrl);
-        }
-        prevContestantPhotosRef.current = newMap;
-
         setContestants(newContestants);
         setIsUnlocked(res.data.isUnlocked);
         if (res.data.partyDate) setPartyDate(res.data.partyDate);
@@ -382,46 +343,13 @@ export default function App() {
         setShowCodeLogin(false);
         fetchCatwalk(res.data.user.code);
       } else {
-        // Fallback to local storage if API returned error
-        const savedCode = localStorage.getItem('hlw_party_code');
-        const savedUserStr = localStorage.getItem('hlw_local_user');
-        const savedCharStr = localStorage.getItem('hlw_local_character');
-        if (savedCode === code.trim() && savedUserStr) {
-          try {
-            const parsedUser = JSON.parse(savedUserStr);
-            const parsedChar = savedCharStr
-              ? JSON.parse(savedCharStr)
-              : (HALLOWEEN_CHARACTERS.find(c => c.id === parsedUser.characterId) || null);
-            setUser(parsedUser);
-            setCharacter(parsedChar);
-            setShowCodeLogin(false);
-            return;
-          } catch {
-            // ignore
-          }
-        }
-        setErrorMsg(res.error || 'Código incorrecto o no encontrado');
+        setErrorMsg(res.error || 'Código no encontrado en el servidor. Verifica que lo hayas introducido bien.');
         localStorage.removeItem('hlw_party_code');
+        localStorage.removeItem('hlw_local_user');
+        localStorage.removeItem('hlw_local_character');
       }
     } catch {
-      const savedCode = localStorage.getItem('hlw_party_code');
-      const savedUserStr = localStorage.getItem('hlw_local_user');
-      const savedCharStr = localStorage.getItem('hlw_local_character');
-      if (savedCode === code.trim() && savedUserStr) {
-        try {
-          const parsedUser = JSON.parse(savedUserStr);
-          const parsedChar = savedCharStr
-            ? JSON.parse(savedCharStr)
-            : (HALLOWEEN_CHARACTERS.find(c => c.id === parsedUser.characterId) || null);
-          setUser(parsedUser);
-          setCharacter(parsedChar);
-          setShowCodeLogin(false);
-          return;
-        } catch {
-          // ignore
-        }
-      }
-      setErrorMsg('Error al conectar con el servidor');
+      setErrorMsg('Error de conexión al verificar el código con el servidor');
     } finally {
       setIsLoggingIn(false);
     }
@@ -454,41 +382,10 @@ export default function App() {
         setErrorMsg(res.data.error || 'Este nombre ya está registrado. Introduce tu código.');
         setShowCodeLogin(true);
       } else {
-        // Fallback: If server is unavailable, assign immediately from catalog
-        const randomChar = HALLOWEEN_CHARACTERS[Math.floor(Math.random() * HALLOWEEN_CHARACTERS.length)];
-        const localCode = generateLocalCode();
-        const fallbackUser: UserData = {
-          code: localCode,
-          name: cleanName,
-          characterId: randomChar.id,
-          confirmed: false,
-          rollsLeft: 2,
-          registeredAt: Date.now()
-        };
-        setUser(fallbackUser);
-        setCharacter(randomChar);
-        localStorage.setItem('hlw_party_code', localCode);
-        localStorage.setItem('hlw_local_user', JSON.stringify(fallbackUser));
-        localStorage.setItem('hlw_local_character', JSON.stringify(randomChar));
-        halloweenAudio.playCreepyLaugh();
+        setErrorMsg(res.error || res.data?.error || 'No se pudo registrar el usuario en el servidor. Por favor inténtalo de nuevo.');
       }
     } catch {
-      const randomChar = HALLOWEEN_CHARACTERS[Math.floor(Math.random() * HALLOWEEN_CHARACTERS.length)];
-      const localCode = generateLocalCode();
-      const fallbackUser: UserData = {
-        code: localCode,
-        name: cleanName,
-        characterId: randomChar.id,
-        confirmed: false,
-        rollsLeft: 2,
-        registeredAt: Date.now()
-      };
-      setUser(fallbackUser);
-      setCharacter(randomChar);
-      localStorage.setItem('hlw_party_code', localCode);
-      localStorage.setItem('hlw_local_user', JSON.stringify(fallbackUser));
-      localStorage.setItem('hlw_local_character', JSON.stringify(randomChar));
-      halloweenAudio.playCreepyLaugh();
+      setErrorMsg('Error de conexión con el servidor. Revisa tu conexión e inténtalo de nuevo.');
     } finally {
       setIsRegistering(false);
     }
@@ -527,85 +424,13 @@ export default function App() {
         localStorage.setItem('hlw_local_character', JSON.stringify(res.data.character));
         halloweenAudio.playCreepyLaugh();
       } else if (res.data?.suggestCodeLogin) {
-        setErrorMsg(res.data.error || 'Este nombre ya está registrado.');
+        setErrorMsg(res.data.error || 'Este nombre ya está registrado. Introduce tu código.');
         setShowCodeLogin(true);
       } else {
-        const customChar: Character = {
-          id: `custom_${Date.now()}`,
-          name: cleanCharName,
-          category: 'Cine de Terror',
-          source: customCharSource.trim() || 'Sugerencia libre',
-          quote: '¡Esta noche de Halloween es mía!',
-          description: `Personaje sugerido especialmente para la fiesta en Casa de Nico.`,
-          imageUrl: 'https://images.unsplash.com/photo-1509248961158-e54f6934749c?auto=format&fit=crop&w=800&q=80',
-          difficulty: 'Creativo Low-Cost',
-          estimatedCost: '0€ - 3€',
-          costumeBreakdown: {
-            faceAndHair: 'Caracterízate con peinado o maquillaje icónico.',
-            clothing: 'Prendas clave en tu armario que simulen el atuendo representativo.',
-            signatureProp: 'El accesorio u objeto inconfundible del personaje.',
-            zeroEuroHack: 'Usa cartón, tijeras y ropa reciclada de casa.'
-          },
-          diyTips: [
-            { material: 'Ropa base', instructions: 'Revisa tu armario buscando los colores y cortes más parecidos.' },
-            { material: 'Atrezzo con cartón', instructions: 'Recorta en cartón los accesorios clave.' }
-          ],
-          secretMission: `Actúa como ${cleanCharName} en algún momento de la fiesta.`
-        };
-        const localCode = generateLocalCode();
-        const fallbackUser: UserData = {
-          code: localCode,
-          name: cleanName,
-          characterId: customChar.id,
-          confirmed: true,
-          rollsLeft: 0,
-          registeredAt: Date.now()
-        };
-        setUser(fallbackUser);
-        setCharacter(customChar);
-        localStorage.setItem('hlw_party_code', localCode);
-        localStorage.setItem('hlw_local_user', JSON.stringify(fallbackUser));
-        localStorage.setItem('hlw_local_character', JSON.stringify(customChar));
-        halloweenAudio.playCreepyLaugh();
+        setErrorMsg(res.error || res.data?.error || 'No se pudo guardar el personaje sugerido en el servidor. Por favor inténtalo de nuevo.');
       }
     } catch {
-      const customChar: Character = {
-        id: `custom_${Date.now()}`,
-        name: cleanCharName,
-        category: 'Cine de Terror',
-        source: customCharSource.trim() || 'Sugerencia libre',
-        quote: '¡Esta noche de Halloween es mía!',
-        description: `Personaje sugerido especialmente para la fiesta en Casa de Nico.`,
-        imageUrl: 'https://images.unsplash.com/photo-1509248961158-e54f6934749c?auto=format&fit=crop&w=800&q=80',
-        difficulty: 'Creativo Low-Cost',
-        estimatedCost: '0€ - 3€',
-        costumeBreakdown: {
-          faceAndHair: 'Caracterízate con peinado o maquillaje icónico.',
-          clothing: 'Prendas clave en tu armario que simulen el atuendo representativo.',
-          signatureProp: 'El accesorio u objeto inconfundible del personaje.',
-          zeroEuroHack: 'Usa cartón, tijeras y ropa reciclada de casa.'
-        },
-        diyTips: [
-          { material: 'Ropa base', instructions: 'Revisa tu armario buscando los colores y cortes más parecidos.' },
-          { material: 'Atrezzo con cartón', instructions: 'Recorta en cartón los accesorios clave.' }
-        ],
-        secretMission: `Actúa como ${cleanCharName} en algún momento de la fiesta.`
-      };
-      const localCode = generateLocalCode();
-      const fallbackUser: UserData = {
-        code: localCode,
-        name: cleanName,
-        characterId: customChar.id,
-        confirmed: true,
-        rollsLeft: 0,
-        registeredAt: Date.now()
-      };
-      setUser(fallbackUser);
-      setCharacter(customChar);
-      localStorage.setItem('hlw_party_code', localCode);
-      localStorage.setItem('hlw_local_user', JSON.stringify(fallbackUser));
-      localStorage.setItem('hlw_local_character', JSON.stringify(customChar));
-      halloweenAudio.playCreepyLaugh();
+      setErrorMsg('Error de conexión con el servidor. Revisa tu conexión e inténtalo de nuevo.');
     } finally {
       setIsRegistering(false);
     }
@@ -1011,21 +836,6 @@ export default function App() {
         </div>
       )}
 
-      {/* WhatsApp-like Live Notification Toast */}
-      {liveNotification && (
-        <div className="fixed top-16 sm:top-20 left-1/2 -translate-x-1/2 z-50 animate-bounce max-w-sm w-11/12 pointer-events-auto">
-          <div className="bg-gradient-to-r from-emerald-950 via-green-950 to-emerald-950 border-2 border-emerald-400 rounded-2xl p-3.5 shadow-2xl flex items-center gap-3 text-emerald-100 text-xs sm:text-sm font-black glow-box-green">
-            <Sparkles className="w-5 h-5 text-yellow-300 shrink-0 animate-spin" />
-            <span className="flex-1">{liveNotification.message}</span>
-            <button
-              onClick={() => setLiveNotification(null)}
-              className="text-emerald-300 hover:text-white p-1 text-sm cursor-pointer"
-            >
-              ✕
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* MAIN CONTAINER */}
       <main className="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 space-y-6">
@@ -1269,29 +1079,17 @@ export default function App() {
               </ul>
             </div>
 
-            {/* Catwalk access or lock notification on landing page */}
-            {isUnlocked ? (
-              <div className="text-center pt-1">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setActiveView('catwalk');
-                    fetchCatwalk();
-                  }}
-                  className="w-full sm:w-auto inline-flex items-center justify-center gap-2 bg-gradient-to-r from-orange-600 via-orange-500 to-amber-600 text-white text-sm sm:text-base font-extrabold py-3.5 px-6 rounded-2xl shadow-xl shadow-orange-600/30 border border-orange-400/40 cursor-pointer transition-transform hover:scale-[1.02] active:scale-[0.98]"
-                >
-                  <Eye className="w-5 h-5 text-purple-950" />
-                  <span>🎭 Entrar a La Pasarela y Votación en Directo</span>
-                </button>
+            {/* Catwalk lock notice on landing page - strictly locked until agreed date/time or admin */}
+            <div className="text-center pt-1">
+              <div className="w-full inline-flex items-center justify-center gap-2.5 bg-purple-950/70 border border-purple-500/30 text-purple-200 text-xs sm:text-sm font-semibold py-3 px-4 rounded-2xl shadow-md">
+                <Lock className="w-4 h-4 text-orange-400 shrink-0" />
+                <span>
+                  {isUnlocked
+                    ? '🎭 La Pasarela se activará tras registrarte con tu código'
+                    : 'Juegos y Pasarela estrictamente bloqueados hasta el Viernes 30 a las 22:00'}
+                </span>
               </div>
-            ) : (
-              <div className="text-center pt-1">
-                <div className="w-full inline-flex items-center justify-center gap-2.5 bg-purple-950/70 border border-purple-500/30 text-purple-200 text-xs sm:text-sm font-semibold py-3 px-4 rounded-2xl shadow-md">
-                  <Lock className="w-4 h-4 text-orange-400 shrink-0" />
-                  <span>Juegos y Pasarela estrictamente bloqueados hasta las 22:00</span>
-                </div>
-              </div>
-            )}
+            </div>
           </div>
         )}
 

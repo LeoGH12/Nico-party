@@ -53,26 +53,6 @@
       "photoUrl": "https://images.unsplash.com/photo-1541781774459-bb2af2f05b55?auto=format&fit=crop&w=600&q=80",
       "photoTimestamp": 1793288469573,
       "registeredAt": 1793284943643
-    },
-    "HLW-UJND": {
-      "code": "HLW-UJND",
-      "name": "Tester",
-      "characterId": "malefica",
-      "confirmed": true,
-      "rollsLeft": 2,
-      "registeredAt": 1793289186294,
-      "photoUrl": "data:image/jpeg;base64,dGVzdA==",
-      "photoTimestamp": 1793289186305
-    },
-    "HLW-L6W5": {
-      "code": "HLW-L6W5",
-      "name": "Tester1793289201917",
-      "characterId": "la-otra-madre",
-      "confirmed": true,
-      "rollsLeft": 2,
-      "registeredAt": 1793289201938,
-      "photoUrl": "data:image/jpeg;base64,dGVzdA==",
-      "photoTimestamp": 1793289201949
     }
   },
   "votes": {
@@ -105,12 +85,6 @@
       "HLW-JLP8": 4,
       "HLW-FY9E": 4,
       "HLW-SU23": 5
-    },
-    "HLW-UJND": {
-      "HLW-MU5T": 3
-    },
-    "HLW-L6W5": {
-      "HLW-MU5T": 5
     }
   },
   "guesses": {
@@ -223,28 +197,12 @@
         "isCorrect": false,
         "timestamp": 1793288543644
       }
-    },
-    "HLW-UJND": {
-      "HLW-MU5T": {
-        "guessText": "Dracula",
-        "isCorrect": false,
-        "timestamp": 1793289186331
-      }
-    },
-    "HLW-L6W5": {
-      "HLW-MU5T": {
-        "guessText": "Dracula",
-        "isCorrect": false,
-        "timestamp": 1793289201982
-      }
     }
   },
   "cutreVotes": {
     "HLW-MU5T": "HLW-FY9E",
     "HLW-JLP8": "HLW-FY9E",
-    "HLW-SU23": "HLW-FY9E",
-    "HLW-UJND": "HLW-JLP8",
-    "HLW-L6W5": "HLW-MU5T"
+    "HLW-SU23": "HLW-FY9E"
   },
   "customCharacters": {}
 }
